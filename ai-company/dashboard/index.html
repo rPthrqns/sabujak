@@ -493,6 +493,7 @@ async function deleteAgent(cid,aid,label){
 }
 
 async function reactivateAgent(cid,aid,label){
+  if(!confirm(`"${label}"을 재활성화하시겠습니까?\n\n⚠️ 세션만 초기화되며, 대화 내용과 작업은 유지됩니다.`))return;
   const t=toastLoading(`"${label}" 재활성화 중...`);
   try{
     const res=await fetch(`/api/agent-reactivate/${cid}/${aid}`,{method:'POST'});
