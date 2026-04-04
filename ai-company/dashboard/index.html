@@ -234,6 +234,24 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   </div>
 </div>
 
+<!-- Agent Detail Modal -->
+<div class="modal-overlay" id="agent-detail-modal">
+  <div class="modal" style="max-width:480px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2 id="agent-detail-title" style="margin:0;font-size:14px">📋 작업 현황</h2>
+      <span style="cursor:pointer;font-size:18px;color:var(--dim)" onclick="closeAgentDetail()">✕</span>
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:6px">📌 할당된 정기 작업</div>
+      <div id="agent-detail-tasks"></div>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:6px">💬 최근 메시지 <span id="agent-detail-count" style="color:var(--dim)"></span></div>
+      <div id="agent-detail-msgs" style="max-height:200px;overflow-y:auto"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Task Add Modal -->
 <div class="modal-overlay" id="task-modal">
   <div class="modal">
@@ -350,7 +368,7 @@ function renderCompany(c){
     const cls=a.status==='registering'?'registering':a.status==='idle'?'idle':a.status==='working'?'working':hasActive?'working':'active';
     const lbl=cls==='registering'?'⏳ 생성 중...':cls==='working'?'🔄 작업중':cls==='active'?'🟢 활성':'⏳ 대기';
     const dis=a.status==='registering'?'pointer-events:none;opacity:.6':'';
-    return `<div class="agent-card ${cls}" style="${dis}"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span><span class="agent-tag ${cls}" style="margin-left:auto">${lbl}</span><span style="font-size:11px;color:var(--accent);cursor:pointer;margin-left:4px" onclick="event.stopPropagation();filterAgentChat('${a.id}','${a.name}')" title="작업 확인">📋</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();reactivateAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="재활성화">🔄</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();deleteAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="삭제">✕</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span></div>${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
+    return `<div class="agent-card ${cls}" style="${dis}"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span><span class="agent-tag ${cls}" style="margin-left:auto">${lbl}</span><span style="font-size:11px;color:var(--accent);cursor:pointer;margin-left:4px" onclick="event.stopPropagation();filterAgentChat('${a.id}','${a.name}','${a.emoji}')" title="작업 확인">📋</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();reactivateAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="재활성화">🔄</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();deleteAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="삭제">✕</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span></div>${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
   }).join('');
   const allTasks=c.agents.flatMap(a=>(a.tasks||[]).map(t=>({...t,agent:a})));
   // Recurring tasks
@@ -395,33 +413,43 @@ function insertMention(name){const i=document.getElementById('chat-input');i.val
 
 let activeAgentFilter=null;
 
-function filterAgentChat(agentId,agentName){
-  const el=document.getElementById('chat-messages');
-  if(activeAgentFilter===agentId){
-    activeAgentFilter=null;
-    refreshChat();
-    return;
-  }
-  activeAgentFilter=agentId;
+function filterAgentChat(agentId,agentName,agentEmoji){
   const company=companies.find(c=>c.id===currentCompany);
   if(!company)return;
-  el.innerHTML='';
-  const filtered=company.chat.filter(m=>m.from&&m.from.toLowerCase()===agentName.toLowerCase());
-  if(filtered.length===0){
-    el.innerHTML=`<div style="text-align:center;padding:20px;color:var(--dim);font-size:12px">📋 ${agentName}의 작업 내역이 없습니다</div>`;
+  const agentTasks=(company.recurring_tasks||[]).filter(t=>t.agent_id===agentId);
+  const agentMsgs=(company.chat||[]).filter(m=>m.from&&m.from.toLowerCase()===agentName.toLowerCase());
+  const modal=document.getElementById('agent-detail-modal');
+  document.getElementById('agent-detail-title').textContent=`${agentEmoji} ${agentName} 작업 현황`;
+  // Tasks section
+  let tasksHtml='';
+  if(agentTasks.length){
+    tasksHtml=agentTasks.map(t=>{
+      const intLbl=t.interval_minutes>=1440?`${Math.round(t.interval_minutes/1440)}일`:t.interval_minutes>=60?`${t.interval_minutes/60}시간`:`${t.interval_minutes}분`;
+      const s=t.status==='running'?'🔄 실행 중':t.status==='paused'?'⏸️ 대기':'⏹️ 중지';
+      const lastR=t.last_run?new Date(t.last_run).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'—';
+      const nextR=t.next_run?new Date(t.next_run).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'—';
+      const lastResult=t.results&&t.results.length?t.results[t.results.length-1].text:'';
+      return `<div class="rtask-card ${t.status}" style="margin-bottom:6px"><div class="rtask-top"><span class="rtask-title">${t.title}</span><span class="rtask-status">${s}</span></div><div class="rtask-meta">${intLbl}마다 · 마지막: ${lastR} · 다음: ${nextR}</div>${lastResult?`<div class="rtask-result">💬 ${lastResult}</div>`:''}<div class="rtask-actions"><button class="rtask-btn" onclick="taskAction('pause','${t.id}')">⏸</button><button class="rtask-btn" onclick="taskAction('stop','${t.id}')">⏹</button><button class="rtask-btn" style="color:#ef4444;border-color:#7f1d1d" onclick="deleteTask('${t.id}','${t.title.replace(/'/g,"\\'")}');closeAgentDetail()">🗑</button></div></div>`;
+    }).join('');
   } else {
-    el.innerHTML=`<div style="text-align:center;padding:6px;font-size:10px;color:var(--accent);cursor:pointer" onclick="activeAgentFilter=null;refreshChat()">🔍 ${agentName} 필터링 중 (클릭하면 전체 보기)</div>`;
-    filtered.forEach(m=>appendChat(m));
+    tasksHtml=`<div style="color:var(--dim);text-align:center;padding:10px;font-size:10px">할당된 정기 작업 없음</div>`;
   }
+  document.getElementById('agent-detail-tasks').innerHTML=tasksHtml;
+  // Messages section
+  let msgsHtml='';
+  if(agentMsgs.length){
+    msgsHtml=agentMsgs.slice(-10).reverse().map(m=>{
+      return `<div style="padding:6px 0;border-bottom:1px solid #1e293b;font-size:11px"><div style="color:var(--dim);font-size:9px">${m.time||''}</div><div style="color:#e2e8f0;margin-top:2px">${(m.text||'').replace(/@(\w+)/g,'<span class="mention">@$1</span>')}</div></div>`;
+    }).join('');
+  } else {
+    msgsHtml=`<div style="color:var(--dim);text-align:center;padding:10px;font-size:10px">메시지 없음</div>`;
+  }
+  document.getElementById('agent-detail-msgs').innerHTML=msgsHtml;
+  document.getElementById('agent-detail-count').textContent=`최근 ${Math.min(agentMsgs.length,10)}건`;
+  modal.classList.add('show');
 }
 
-function refreshChat(){
-  const company=companies.find(c=>c.id===currentCompany);
-  if(!company)return;
-  const el=document.getElementById('chat-messages');
-  el.innerHTML='';
-  if(company.chat)company.chat.forEach(m=>appendChat(m));
-}
+function closeAgentDetail(){document.getElementById('agent-detail-modal').classList.remove('show')}
 
 async function sendChat(){
   const input=document.getElementById('chat-input'),text=input.value.trim();if(!text)return;input.value='';
