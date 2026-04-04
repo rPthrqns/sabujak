@@ -179,7 +179,7 @@ def auto_create_agents(cid, company, text, time_str):
     return created_logs
 
 # ─── Recurring Task System ───
-TASK_KEYWORDS = ['모니터링', '감시', '정기', '주기', '매시간', '매일', '자동', '반복', '정기적']
+TASK_KEYWORDS = ['모니터링', '감시', '정기', '주기', '매시간', '매일', '자동', '반복', '정기적', '보고', '리포트', '상황공유', '업데이트', '보고해', '보고올려', '보고드려']
 TASK_INTERVAL_KEYWORDS = {
     '매시간': 60, '한시간마다': 60, '1시간마다': 60, '시간마다': 60,
     '매일': 1440, '하루에한번': 1440, '매분': 1, '30분마다': 30, '30분': 30,
@@ -568,9 +568,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             time_str = now.strftime('%H:%M')
             msg = {"from": "마스터", "text": text, "time": time_str, "type": "user"}
 
-            # Detect @mention
-            mention = re.search(r'@(\w+)', text)
-            target = mention.group(1).upper() if mention else 'CEO'
+            # Detect ALL @mentions
+            all_mentions = re.findall(r'@(\w+)', text)
+            existing_ids = {a['id'] for a in company.get('agents', [])}
+            # Filter to valid agent IDs (case-insensitive)
+            targets = []
+            for m in all_mentions:
+                matched = next((a['id'] for a in company.get('agents', []) if a['id'].lower() == m.lower()), None)
+                if matched and matched.lower() not in [t.lower() for t in targets]:
+                    targets.append(matched)
+            if not targets:
+                targets = ['CEO']  # fallback
 
             # Auto-detect agent creation requests (e.g. "CTO 만들어줘", "마케팅 담당자 추가해")
             created_agents = auto_create_agents(cid, company, text, time_str)
@@ -578,17 +586,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             company["chat"].append(msg)
             if created_agents:
                 company["activity_log"].extend(created_agents)
-            company["activity_log"].append({"time": time_str, "agent": "마스터", "text": f"@{target} {text}"})
+            targets_str = ', '.join(f'@{t.upper()}' for t in targets)
+            company["activity_log"].append({"time": time_str, "agent": "마스터", "text": f"{targets_str} {text}"})
 
             # Queue for OpenClaw
             queue_file = DATA / f"{cid}-queue.json"
             queue = load_json(queue_file, [])
-            queue.append({"text": text, "time": now.isoformat(), "target": target, "processed": False, "id": now.timestamp()})
-            # Save queue
+            queue.append({"text": text, "time": now.isoformat(), "target": targets[0], "processed": False, "id": now.timestamp()})
             save_json(queue_file, queue)
 
-            # Immediately trigger processing via dedicated agent
-            threading.Thread(target=trigger_processor, args=(cid, text, target), daemon=True).start()
+            # Trigger ALL mentioned agents in parallel
+            for target in targets:
+                threading.Thread(target=trigger_processor, args=(cid, text, target.upper()), daemon=True).start()
 
             # Auto-detect recurring task intent
             task_info = detect_task_intent(text, company)
@@ -613,7 +622,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             to_agent = body.get('to', 'CEO')
             text = body.get('text', '').strip()
             emoji = body.get('emoji', '👔')
-            if not text: self._json({"error": "empty"}, 400); return
+            if not text or text in ('No reply from agent.', ''): self._json({"ok": False, "reason": "empty/no_reply"}); return
 
             company = get_company(cid)
             if not company: self._json({"error": "not found"}, 404); return
@@ -782,8 +791,6 @@ class ReusableTCPServer(socketserver.TCPServer):
 PROCESSORS = {}
 
 def trigger_processor(cid, text, target):
-    if cid in PROCESSORS:
-        return
     company = get_company(cid)
     if not company:
         return
