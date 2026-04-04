@@ -314,8 +314,9 @@ function renderCompany(c){
     return `<div class="task-item"><div class="task-title">${t.title} <span class="task-badge ${cls}">${lbl}</span></div><div class="task-assignee">${t.agent.emoji} ${t.agent.name}</div></div>`;
   }).join(''):`<div style="color:var(--dim);text-align:center;padding:14px;font-size:10px">—</div>`;
   if(c.chat&&c.chat.length>lastChatLen){
-    c.chat.slice(lastChatLen).forEach(m=>appendChat(m));lastChatLen=c.chat.length;
-    if(c.chat.slice(lastChatLen).some(m=>m.type==='agent')) document.getElementById('typing').classList.remove('show');
+    const newMsgs=c.chat.slice(lastChatLen);
+    newMsgs.forEach(m=>appendChat(m));lastChatLen=c.chat.length;
+    if(newMsgs.some(m=>m.type==='agent')) document.getElementById('typing').classList.remove('show');
   }else if(c.chat) lastChatLen=c.chat.length;
 }
 
