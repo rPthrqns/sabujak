@@ -161,7 +161,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     <div id="org-list" style="overflow-y:auto;flex:1"></div>
   </div>
   <div class="panel chat-panel">
-    <div class="panel-title" id="chat-title">💬 소통</div>
+    <div class="panel-title" id="chat-title" style="display:flex;align-items:center;gap:6px;cursor:pointer" onclick="activeAgentFilter=null;renderPanels()">💬 소통</div>
     <div class="mentions" id="mentions"></div>
     <div class="chat-messages" id="chat-messages"></div>
     <div class="typing" id="typing"><div class="td"><span></span><span></span><span></span></div> <span id="typing-who">...</span></div>
@@ -415,6 +415,13 @@ function renderPanels(){
   if(!company)return;
   const chatEl=document.getElementById('chat-messages');
   const taskEl=document.getElementById('task-list');
+  // Update chat title
+  const titleEl=document.getElementById('chat-title');
+  if(activeAgentFilter){
+    titleEl.innerHTML=`<span onclick="activeAgentFilter=null;renderPanels()" style="cursor:pointer" title="전체 보기">💬 ${activeAgentFilter.emoji} ${activeAgentFilter.name}</span><span style="font-size:10px;color:var(--dim);margin-left:auto" title="클릭하면 전체 보기">← 전체</span>`;
+  } else {
+    titleEl.innerHTML=`<span>💬 소통</span>`;
+  }
   // Chat filter
   chatEl.innerHTML='';
   if(activeAgentFilter){
@@ -453,9 +460,14 @@ function closeAgentDetail(){}
 
 async function sendChat(){
   const input=document.getElementById('chat-input'),text=input.value.trim();if(!text)return;input.value='';
+  // Auto-mention if agent filter is active
+  let finalText=text;
+  if(activeAgentFilter&&!text.toLowerCase().includes('@'+activeAgentFilter.name.toLowerCase())){
+    finalText=`@${activeAgentFilter.name} ${text}`;
+  }
   document.getElementById('chat-send').disabled=true;
   try{
-    const res=await fetch(`/api/chat/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+    const res=await fetch(`/api/chat/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:finalText})});
     const data=await res.json();
     if(data.ok){lastChatLen++;appendChat(data.msg);document.getElementById('typing-who').textContent=data.target+' ...';document.getElementById('typing').classList.add('show')}
   }catch(e){alert('Failed')}
