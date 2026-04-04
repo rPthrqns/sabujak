@@ -350,7 +350,7 @@ function renderCompany(c){
     const cls=a.status==='registering'?'registering':a.status==='idle'?'idle':a.status==='working'?'working':hasActive?'working':'active';
     const lbl=cls==='registering'?'⏳ 생성 중...':cls==='working'?'🔄 작업중':cls==='active'?'🟢 활성':'⏳ 대기';
     const dis=a.status==='registering'?'pointer-events:none;opacity:.6':'';
-    return `<div class="agent-card ${cls}" style="${dis}"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span><span class="agent-tag ${cls}" style="margin-left:auto">${lbl}</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:4px" onclick="event.stopPropagation();reactivateAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="재활성화">🔄</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();deleteAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="삭제">✕</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span></div>${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
+    return `<div class="agent-card ${cls}" style="${dis}"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span><span class="agent-tag ${cls}" style="margin-left:auto">${lbl}</span><span style="font-size:11px;color:var(--accent);cursor:pointer;margin-left:4px" onclick="event.stopPropagation();filterAgentChat('${a.id}','${a.name}')" title="작업 확인">📋</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();reactivateAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="재활성화">🔄</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();deleteAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="삭제">✕</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span></div>${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
   }).join('');
   const allTasks=c.agents.flatMap(a=>(a.tasks||[]).map(t=>({...t,agent:a})));
   // Recurring tasks
@@ -373,7 +373,7 @@ function renderCompany(c){
     taskHtml=`<div style="color:var(--dim);text-align:center;padding:14px;font-size:10px">정기 작업 없음<br><span style="font-size:9px">채팅에서 "모니터링", "정기적" 등으로 자동 생성</span></div>`;
   }
   document.getElementById('task-list').innerHTML=taskHtml;
-  if(c.chat&&c.chat.length>lastChatLen){
+  if(!activeAgentFilter&&c.chat&&c.chat.length>lastChatLen){
     const newMsgs=c.chat.slice(lastChatLen);
     newMsgs.forEach(m=>appendChat(m));lastChatLen=c.chat.length;
     if(newMsgs.some(m=>m.type==='agent')) document.getElementById('typing').classList.remove('show');
@@ -392,6 +392,36 @@ function appendChat(m){
 }
 
 function insertMention(name){const i=document.getElementById('chat-input');i.value+='@'+name+' ';i.focus()}
+
+let activeAgentFilter=null;
+
+function filterAgentChat(agentId,agentName){
+  const el=document.getElementById('chat-messages');
+  if(activeAgentFilter===agentId){
+    activeAgentFilter=null;
+    refreshChat();
+    return;
+  }
+  activeAgentFilter=agentId;
+  const company=companies.find(c=>c.id===currentCompany);
+  if(!company)return;
+  el.innerHTML='';
+  const filtered=company.chat.filter(m=>m.from&&m.from.toLowerCase()===agentName.toLowerCase());
+  if(filtered.length===0){
+    el.innerHTML=`<div style="text-align:center;padding:20px;color:var(--dim);font-size:12px">📋 ${agentName}의 작업 내역이 없습니다</div>`;
+  } else {
+    el.innerHTML=`<div style="text-align:center;padding:6px;font-size:10px;color:var(--accent);cursor:pointer" onclick="activeAgentFilter=null;refreshChat()">🔍 ${agentName} 필터링 중 (클릭하면 전체 보기)</div>`;
+    filtered.forEach(m=>appendChat(m));
+  }
+}
+
+function refreshChat(){
+  const company=companies.find(c=>c.id===currentCompany);
+  if(!company)return;
+  const el=document.getElementById('chat-messages');
+  el.innerHTML='';
+  if(company.chat)company.chat.forEach(m=>appendChat(m));
+}
 
 async function sendChat(){
   const input=document.getElementById('chat-input'),text=input.value.trim();if(!text)return;input.value='';
