@@ -293,6 +293,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             update_company(cid, {"chat": company["chat"], "activity_log": company["activity_log"]})
             self._json({"ok": True, "msg": msg})
 
+            # Chain: detect @mentions in agent response and trigger next agent
+            mention = re.search(r'@(\w+)', text)
+            if mention:
+                target = mention.group(1).upper()
+                # Don't chain back to the same agent
+                if target != from_agent.upper():
+                    existing_ids = {a['id'] for a in company.get('agents', [])}
+                    if target.lower() in existing_ids:
+                        threading.Thread(target=trigger_processor, args=(cid, text, target), daemon=True).start()
+
         elif self.path == '/api/company/delete':
             cid = body.get('id')
             # Delete real OpenClaw agents
