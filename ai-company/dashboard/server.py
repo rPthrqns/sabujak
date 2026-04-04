@@ -87,14 +87,17 @@ def register_agent(agent_id, agent_workspace, name, role, company_name, emoji):
     # Register and activate in background thread
     threading.Thread(target=_register_and_activate, args=(agent_id, str(agent_workspace), name, role), daemon=True).start()
 
+AGENT_LOCK = threading.Lock()
+
 def _register_and_activate(agent_id, workspace, name, role):
     """Background: register agent and activate session."""
-    try:
-        subprocess.run(
-            ['openclaw', 'agents', 'add', agent_id, '--workspace', workspace, '--non-interactive'],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
-        )
-    except: pass
+    with AGENT_LOCK:
+        try:
+            subprocess.run(
+                ['openclaw', 'agents', 'add', agent_id, '--workspace', workspace, '--non-interactive'],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15
+            )
+        except: pass
     try:
         subprocess.run(
             ['openclaw', 'agent', '--agent', agent_id, '--local',
@@ -447,6 +450,13 @@ def trigger_processor(cid, text, target):
     emoji = agent.get('emoji', '👔')
     company_name = company.get('name', '')
     topic = company.get('topic', '')
+
+    # Ensure agent is registered
+    agent_workspace = DATA / cid / "workspaces" / agent['id']
+    if not agent_workspace.exists():
+        register_agent(agent_id, agent_workspace, agent['name'], agent['role'], company_name, emoji)
+        # Wait a moment for registration
+        import time; time.sleep(3)
 
     available_agents = ", ".join([f"@{a['id'].upper()}" for a in company.get('agents', []) if a['id'] != agent['id']])
 
