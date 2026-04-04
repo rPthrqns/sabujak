@@ -576,12 +576,11 @@ def trigger_processor(cid, text, target):
         else:
             # Extract response and POST to dashboard automatically
             reply = stdout.decode().strip()
-            if reply:
-                # Remove any leading meta lines
-                lines = reply.split('\n')
-                clean_lines = [l for l in lines if not l.startswith('[') and l.strip()]
-                reply = '\n'.join(clean_lines).strip()
-            if reply:
+            # Filter out meta lines and empty responses
+            lines = reply.split('\n')
+            clean_lines = [l for l in lines if not l.startswith('[') and not l.startswith('(agent') and l.strip()]
+            reply = '\n'.join(clean_lines).strip()
+            if reply and len(reply) > 1 and reply not in ('No reply from agent.', ''):
                 import urllib.request
                 try:
                     payload = json.dumps({
@@ -596,6 +595,26 @@ def trigger_processor(cid, text, target):
                     urllib.request.urlopen(req, timeout=5)
                 except Exception as e:
                     print(f"[WARN] post response failed: {e}")
+            else:
+                print(f"[WARN] empty/no reply from {agent_id}, retrying...")
+                # Retry once
+                import time; time.sleep(2)
+                try:
+                    proc2 = subprocess.Popen(
+                        ['openclaw', 'agent', '--agent', agent_id, '--local', '-m', prompt],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                    )
+                    stdout2, stderr2 = proc2.communicate(timeout=60)
+                    reply2 = stdout2.decode().strip()
+                    lines2 = reply2.split('\n')
+                    clean2 = [l for l in lines2 if not l.startswith('[') and not l.startswith('(agent') and l.strip()]
+                    reply2 = '\n'.join(clean2).strip()
+                    if reply2 and len(reply2) > 1:
+                        import urllib.request
+                        payload = json.dumps({"from": agent['name'], "emoji": emoji, "to": "마스터", "text": reply2}).encode()
+                        req = urllib.request.Request(f'http://localhost:3000/api/agent-msg/{cid}', data=payload, headers={'Content-Type': 'application/json'})
+                        urllib.request.urlopen(req, timeout=5)
+                except: pass
     except Exception as e:
         print(f"Processor error: {e}")
     finally:
