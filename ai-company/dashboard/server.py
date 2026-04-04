@@ -276,6 +276,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             # Create real OpenClaw agent
             agent_workspace = DATA / cid / "workspaces" / aid
             agent_workspace.mkdir(parents=True, exist_ok=True)
+            # Ensure required workspace files exist
+            if not (agent_workspace / "AGENTS.md").exists():
+                (agent_workspace / "AGENTS.md").write_text("# AGENTS.md\n")
+            if not (agent_workspace / "SOUL.md").exists():
+                (agent_workspace / "SOUL.md").write_text(f"# SOUL.md\n당신은 '{name}'({role})입니다.\n")
             try:
                 subprocess.run(
                     ['openclaw', 'agents', 'add', agent_id,
@@ -359,10 +364,13 @@ curl -s -X POST http://localhost:3000/api/agent-msg/{cid} -H 'Content-Type: appl
 
     PROCESSORS[cid] = True
     try:
-        subprocess.Popen(
+        proc = subprocess.Popen(
             ['openclaw', 'agent', '--agent', agent_id, '--local', '-m', prompt],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
+        stdout, stderr = proc.communicate(timeout=60)
+        if proc.returncode != 0:
+            print(f"[WARN] processor {agent_id} failed: {stderr.decode()[:200]}")
     except Exception as e:
         print(f"Processor error: {e}")
     finally:
