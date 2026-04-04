@@ -81,7 +81,7 @@ def create_company(name, topic, lang="ko"):
         agent_workspace.mkdir(parents=True, exist_ok=True)
         subprocess.run(
             ['openclaw', 'agents', 'add', agent_id,
-             '--workspace', str(agent_workspace), '--force'],
+             '--workspace', str(agent_workspace), '--non-interactive'],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
         )
 
@@ -284,7 +284,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             try:
                 subprocess.run(
                     ['openclaw', 'agents', 'add', agent_id,
-                     '--workspace', str(agent_workspace), '--force'],
+                     '--workspace', str(agent_workspace), '--non-interactive'],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
                 )
             except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
