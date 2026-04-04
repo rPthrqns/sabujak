@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+*.bak
+ai-company/data/
+*.log
+.DS_Store
+.openclaw/
