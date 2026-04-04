@@ -281,6 +281,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             msg = {"from": from_agent, "emoji": emoji, "text": f"@{to_agent} {text}", "time": time_str, "type": "agent"}
             company["chat"].append(msg)
             company["activity_log"].append({"time": time_str, "agent": from_agent, "text": f"@{to_agent} {text}"})
+
+            # Auto-detect agent creation from agent messages too
+            created_agents = auto_create_agents(cid, company, text, time_str)
+            if created_agents:
+                company["activity_log"].extend(created_agents)
+                update_company(cid, {"agents": company["agents"], "activity_log": company["activity_log"]})
+                self._json({"ok": True, "msg": msg, "created": [c["text"] for c in created_agents]})
+                return
+
             update_company(cid, {"chat": company["chat"], "activity_log": company["activity_log"]})
             self._json({"ok": True, "msg": msg})
 
