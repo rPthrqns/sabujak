@@ -305,7 +305,7 @@ function renderCompany(c){
   document.getElementById('org-list').innerHTML=c.agents.map(a=>{
     const tasks=a.tasks||[],done=tasks.filter(t=>t.status==='completed').length,total=tasks.length;
     const prog=total?Math.round(done/total*100):0,hasActive=tasks.some(t=>t.status==='in-progress');
-    const cls=a.status==='registering'?'registering':a.status==='idle'?'idle':hasActive?'working':'active';
+    const cls=a.status==='registering'?'registering':a.status==='idle'?'idle':a.status==='working'?'working':hasActive?'working':'active';
     const lbl=cls==='registering'?'⏳ 생성 중...':cls==='working'?'🔄 작업중':cls==='active'?'🟢 활성':'⏳ 대기';
     const dis=a.status==='registering'?'pointer-events:none;opacity:.6':'';
     return `<div class="agent-card ${cls}" style="${dis}"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span><span class="agent-tag ${cls}" style="margin-left:auto">${lbl}</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:4px" onclick="event.stopPropagation();deleteAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="삭제">✕</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span></div>${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
