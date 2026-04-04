@@ -397,6 +397,8 @@ async function createCompany(){
   const btn=document.getElementById('btn-create');btn.classList.add('loading');
   const t=toastLoading(`"${name}" 회사 생성 중...`);
   const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),60000);
+  try{
+  const res=await fetch('/api/companies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,topic,lang:'ko'}),signal:controller.signal});
   clearTimeout(timer);
   const data=await res.json();
   if(data.ok){toastDone(t,`"${name}" 회사가 생성되었습니다!`);closeModal();currentCompany=data.company.id;lastChatLen=0;load()}
