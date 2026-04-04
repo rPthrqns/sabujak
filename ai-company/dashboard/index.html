@@ -324,7 +324,11 @@ function renderCompany(c){
 }
 
 function appendChat(m){
-  const el=document.getElementById('chat-messages'),isUser=m.type==='user';
+  const el=document.getElementById('chat-messages'),isUser=m.type==='user',isSystem=m.type==='system';
+  if(isSystem){
+    el.innerHTML+=`<div style="text-align:center;padding:8px;font-size:11px;color:var(--dim)">${(m.text||'')}</div>`;
+    el.scrollTop=el.scrollHeight;return;
+  }
   const avatar=isUser?'👤':(m.emoji||'👔');
   el.innerHTML+=`<div class="chat-msg ${isUser?'user':'agent'}"><div class="avatar">${avatar}</div><div class="chat-body"><div class="chat-sender">${m.from}</div><div class="chat-bubble">${(m.text||'').replace(/@(\w+)/g,'<span class="mention">@$1</span>')}</div></div></div>`;
   el.scrollTop=el.scrollHeight;

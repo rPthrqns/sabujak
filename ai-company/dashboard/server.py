@@ -156,6 +156,24 @@ def init_companies():
         save_json(COMPANIES_FILE, [])
     return load_json(COMPANIES_FILE)
 
+def _welcome_msg(name, topic, agents, lang):
+    team = ', '.join(a['name'] for a in agents[1:])
+    msgs = {
+        'ko': {"greeting": f"안녕하세요 마스터! 👋\n\n저는 '{name}'의 CEO입니다.\n\n주제: {topic}\n팀원: {team}\n\n@멘션으로 팀원들에게 지시하실 수 있습니다. 무엇부터 시작할까요?",
+                "waiting": "⏳ 에이전트를 준비하고 있습니다. 잠시만 기다려주세요...",
+                "log": f"🏢 '{name}' 프로젝트 시작. 주제: {topic}"},
+        'en': {"greeting": f"Hello Master! 👋\n\nI'm the CEO of '{name}'.\n\nTopic: {topic}\nTeam: {team}\n\nUse @mention to instruct team members. What should we start with?",
+                "waiting": "⏳ Agents are being prepared. Please wait a moment...",
+                "log": f"🏢 '{name}' project started. Topic: {topic}"},
+        'ja': {"greeting": f"こんにちはマスター！👋\n\n私は '{name}' のCEOです。\n\nテーマ: {topic}\nチーム: {team}\n\n@メンションでチームメンバーに指示できます。何から始めましょうか？",
+                "waiting": "⏳ エージェントを準備しています。しばらくお待ちください...",
+                "log": f"🏢 '{name}' プロジェクト開始。テーマ: {topic}"},
+        'zh': {"greeting": f"你好管理员！👋\n\n我是 '{name}' 的CEO。\n\n主题: {topic}\n团队: {team}\n\n使用@提及来指示团队成员。我们从什么开始？",
+                "waiting": "⏳ 正在准备代理，请稍等...",
+                "log": f"🏢 '{name}' 项目启动。主题: {topic}"},
+    }
+    return msgs.get(lang, msgs['ko'])
+
 def create_company(name, topic, lang="ko"):
     companies = load_json(COMPANIES_FILE)
     slug = re.sub(r'[^a-z0-9]', '-', name.lower()).strip('-')
@@ -191,15 +209,18 @@ def create_company(name, topic, lang="ko"):
             "role": agent_role, "status": "registering",
             "tasks": [], "messages": []
         })
+    W = _welcome_msg(name, topic, agents, lang)
     company = {
         "id": company_id, "name": name, "topic": topic, "lang": lang,
         "status": "starting", "created_at": datetime.now().isoformat(),
         "agents": agents,
         "chat": [
-            {"type": "agent", "from": "CEO", "emoji": "👔", "to": "마스터", "text": f"안녕하세요 마스터! 👋\n\n저는 '{name}'의 CEO입니다.\n\n주제: {topic}\n팀원: {', '.join(a['name'] for a in agents[1:])}\n\n@멘션으로 팀원들에게 지시하실 수 있습니다. 무엇부터 시작할까요?"}
+            {"type": "system", "from": "시스템", "emoji": "⚙️", "to": "", "text": W['waiting']},
+            {"type": "agent", "from": "CEO", "emoji": "👔", "to": "마스터", "text": W['greeting']}
         ],
         "activity_log": [
-            {"time": datetime.now().strftime('%H:%M'), "agent": "CEO", "text": f"🏢 '{name}' 프로젝트 시작. 주제: {topic}"}
+            {"time": datetime.now().strftime('%H:%M'), "agent": "시스템", "text": W['waiting']},
+            {"time": datetime.now().strftime('%H:%M'), "agent": "CEO", "text": W['log']}
         ]
     }
     companies.append(company)
