@@ -62,7 +62,10 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji):
     agent_workspace.mkdir(parents=True, exist_ok=True)
     # AGENTS.md (required by OpenClaw)
     if not (agent_workspace / "AGENTS.md").exists():
-        (agent_workspace / "AGENTS.md").write_text("# AGENTS.md\n")
+        (agent_workspace / "AGENTS.md").write_text(
+            "# AGENTS.md\n\n## Instructions\n"
+            "Read SOUL.md and IDENTITY.md on startup. Do not run bootstrap.\n"
+            "When you receive a message, respond in character.\n")
     # SOUL.md with role context
     if not (agent_workspace / "SOUL.md").exists():
         (agent_workspace / "SOUL.md").write_text(
@@ -441,14 +444,12 @@ def trigger_processor(cid, text, target):
 
     prompt = f"""당신은 '{company_name}'의 {agent['name']}({agent['role']})입니다. 주제: {topic}
 
+부트스트랩이나 초기화 작업은 건너뛰고, 아래 메시지에 즉시 응답하세요.
+
 메시지: "{text}"
 
-처리 후 대시보드에 응답 POST:
-curl -s -X POST http://localhost:3000/api/agent-msg/{cid} -H 'Content-Type: application/json' -d '{{"from":"{agent['name']}","emoji":"{emoji}","to":"마스터","text":"응답내용"}}'
-
-큐 마킹: python3 -c "import json; f='/home/sra/.openclaw/workspace/ai-company/data/{cid}-queue.json'; q=json.load(open(f)); [m.__setitem__('processed',True) for m in q if not m.get('processed')]; json.dump(q,open(f,'w'),ensure_ascii=False)"
-
-한국어로 응답."""
+한국어로 간결하게 응답한 후, 아래 curl 명령으로 대시보드에 응답을 POST하세요:
+curl -s -X POST http://localhost:3000/api/agent-msg/{cid} -H 'Content-Type: application/json' -d '{{"from":"{agent['name']}","emoji":"{emoji}","to":"마스터","text":"여기에_응답내용"}}'"""
 
     PROCESSORS[cid] = True
     try:
