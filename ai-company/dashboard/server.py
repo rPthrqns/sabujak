@@ -339,7 +339,7 @@ def execute_task(cid, task):
 
 {task['prompt']}
 
-간결하게 결과만 보고하세요. (2-3줄 이내)"""
+간결하게 결과만 보고하세요. (2-3줄 이내) @마스터는 절대 멘션하지 마세요."""
 
     start = time.time()
     try:
@@ -766,6 +766,36 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             _running_task_threads.discard(f"{cid}:{task_id}")
             self._json({"ok": True})
 
+        elif self.path.startswith('/api/agent-reactivate/'):
+            parts = self.path.split('/')
+            cid, aid = parts[-2], parts[-1]
+            company = get_company(cid)
+            if not company: self._json({"error": "not found"}, 404); return
+            agent = next((a for a in company['agents'] if a['id'] == aid), None)
+            if not agent: self._json({"error": "agent not found"}, 404); return
+            agent_id = agent.get('agent_id', f"{cid}-{aid}")
+            agent_workspace = DATA / cid / "workspaces" / aid
+            try:
+                # Delete and re-register the agent
+                subprocess.run(['openclaw', 'agents', 'delete', agent_id, '--force'],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+                import shutil, time
+                if agent_workspace.exists():
+                    shutil.rmtree(agent_workspace, ignore_errors=True)
+                time.sleep(1)
+                register_agent(agent_id, agent_workspace, agent['name'], agent['role'],
+                               company.get('name', ''), agent.get('emoji', '🤖'))
+                a['status'] = 'active'
+                update_company(cid, {"agents": company["agents"]})
+                now = datetime.now().strftime('%H:%M')
+                company = get_company(cid)
+                company['activity_log'].append({"time": now, "agent": "시스템",
+                    "text": f"🔄 {agent.get('emoji','')} {agent['name']} 재활성화 완료"})
+                update_company(cid, {"activity_log": company["activity_log"]})
+                self._json({"ok": True})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+
         elif self.path.startswith('/api/agent-delete/'):
             parts = self.path.split('/')
             cid = parts[-2]
@@ -825,6 +855,7 @@ def trigger_processor(cid, text, target):
 - 부트스트랩/초기화는 건너뛰고 즉시 응답하세요
 - 모든 팀원 세션은 온라인 상태입니다. "오프라인", "미활성", "대기중"이라고 말하지 마세요
 - 다른 팀원에게 지시가 필요하면 반드시 @멘션을 사용하세요. 사용 가능: {available_agents}
+- @마스터는 절대 멘션하지 마세요. 마스터는 항상 대화에 참여 중이므로 멘션이 불필요합니다
 - 한국어로 간결하게 응답하세요
 - curl이나 외부 명령을 실행하지 마세요. 응답 내용만 출력하세요
 

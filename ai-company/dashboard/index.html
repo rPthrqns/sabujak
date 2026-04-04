@@ -350,7 +350,7 @@ function renderCompany(c){
     const cls=a.status==='registering'?'registering':a.status==='idle'?'idle':a.status==='working'?'working':hasActive?'working':'active';
     const lbl=cls==='registering'?'⏳ 생성 중...':cls==='working'?'🔄 작업중':cls==='active'?'🟢 활성':'⏳ 대기';
     const dis=a.status==='registering'?'pointer-events:none;opacity:.6':'';
-    return `<div class="agent-card ${cls}" style="${dis}"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span><span class="agent-tag ${cls}" style="margin-left:auto">${lbl}</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:4px" onclick="event.stopPropagation();deleteAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="삭제">✕</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span></div>${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
+    return `<div class="agent-card ${cls}" style="${dis}"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span><span class="agent-tag ${cls}" style="margin-left:auto">${lbl}</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:4px" onclick="event.stopPropagation();reactivateAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="재활성화">🔄</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();deleteAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="삭제">✕</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span></div>${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
   }).join('');
   const allTasks=c.agents.flatMap(a=>(a.tasks||[]).map(t=>({...t,agent:a})));
   // Recurring tasks
@@ -432,6 +432,16 @@ async function deleteAgent(cid,aid,label){
   const data=await res.json();
   if(data.ok){toastDone(t,`"${label}" 에이전트가 삭제되었습니다`);refreshCompany()}
   else toastDone(t,'삭제 실패')
+}
+
+async function reactivateAgent(cid,aid,label){
+  const t=toastLoading(`"${label}" 재활성화 중...`);
+  try{
+    const res=await fetch(`/api/agent-reactivate/${cid}/${aid}`,{method:'POST'});
+    const data=await res.json();
+    if(data.ok){toastDone(t,`"${label}" 재활성화 완료`);refreshCompany()}
+    else toastDone(t,'재활성화 실패: '+(data.error||''))
+  }catch(e){toastDone(t,'재활성화 실패')}
 }
 
 async function addAgent(){
