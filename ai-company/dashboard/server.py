@@ -57,6 +57,27 @@ def get_org_for_topic(topic):
             return org
     return TOPIC_ORGS["default"]
 
+def setup_agent_workspace(agent_workspace, name, role, company_name, emoji):
+    """Initialize agent workspace with required files."""
+    agent_workspace.mkdir(parents=True, exist_ok=True)
+    # AGENTS.md (required by OpenClaw)
+    if not (agent_workspace / "AGENTS.md").exists():
+        (agent_workspace / "AGENTS.md").write_text("# AGENTS.md\n")
+    # SOUL.md with role context
+    if not (agent_workspace / "SOUL.md").exists():
+        (agent_workspace / "SOUL.md").write_text(
+            f"# SOUL.md\n당신은 '{company_name}'의 {name}({role})입니다.\n"
+            f"팀원들에게 @멘션으로 지시하고, @CEO에게 보고하세요.\n"
+            f"한국어로 소통합니다.\n")
+    # IDENTITY.md with persona
+    if not (agent_workspace / "IDENTITY.md").exists():
+        (agent_workspace / "IDENTITY.md").write_text(
+            f"- **Name:** {name}\n- **Role:** {role}\n- **Emoji:** {emoji}\n")
+    # Remove BOOTSTRAP.md to skip onboarding
+    bootstrap = agent_workspace / "BOOTSTRAP.md"
+    if bootstrap.exists():
+        bootstrap.unlink()
+
 ROLE_MAP = {
     'ceo': ('CEO', '최고경영자', '👔'), 'cto': ('CTO', '기술총괄', '💻'),
     'cfo': ('CFO', '재무총괄', '💰'), 'coo': ('COO', '운영총괄', '⚙️'),
@@ -86,11 +107,7 @@ def auto_create_agents(cid, company, text, time_str):
             aid = key
             agent_id = f"{cid}-{aid}"
             agent_workspace = DATA / cid / "workspaces" / aid
-            agent_workspace.mkdir(parents=True, exist_ok=True)
-            if not (agent_workspace / "AGENTS.md").exists():
-                (agent_workspace / "AGENTS.md").write_text("# AGENTS.md\n")
-            if not (agent_workspace / "SOUL.md").exists():
-                (agent_workspace / "SOUL.md").write_text(f"# SOUL.md\n당신은 '{name}'({role})입니다.\n")
+            setup_agent_workspace(agent_workspace, name, role, company.get('name',''), emoji)
             try:
                 subprocess.run(
                     ['openclaw', 'agents', 'add', agent_id,
@@ -128,12 +145,14 @@ def create_company(name, topic, lang="ko"):
 
         # Create real OpenClaw agent
         agent_workspace = DATA / company_id / "workspaces" / aid
-        agent_workspace.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ['openclaw', 'agents', 'add', agent_id,
-             '--workspace', str(agent_workspace), '--non-interactive'],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
-        )
+        setup_agent_workspace(agent_workspace, agent_name, agent_role, name, agent_emoji)
+        try:
+            subprocess.run(
+                ['openclaw', 'agents', 'add', agent_id,
+                 '--workspace', str(agent_workspace), '--non-interactive'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
+            )
+        except: pass
 
         agents.append({
             "id": aid, "agent_id": agent_id, "name": agent_name, "emoji": agent_emoji,
@@ -349,12 +368,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             # Create real OpenClaw agent
             agent_workspace = DATA / cid / "workspaces" / aid
-            agent_workspace.mkdir(parents=True, exist_ok=True)
-            # Ensure required workspace files exist
-            if not (agent_workspace / "AGENTS.md").exists():
-                (agent_workspace / "AGENTS.md").write_text("# AGENTS.md\n")
-            if not (agent_workspace / "SOUL.md").exists():
-                (agent_workspace / "SOUL.md").write_text(f"# SOUL.md\n당신은 '{name}'({role})입니다.\n")
+            setup_agent_workspace(agent_workspace, name, role, company.get('name',''), emoji)
             try:
                 subprocess.run(
                     ['openclaw', 'agents', 'add', agent_id,
