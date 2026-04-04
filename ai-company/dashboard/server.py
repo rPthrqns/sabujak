@@ -504,7 +504,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(BASE / "dashboard"), **kw)
 
-    def log_message(self, fmt, *args): pass
+    def log_message(self, fmt, *args): 
+        import sys; sys.stderr.write(f"[HTTP] {fmt % args}\n")
 
     def _json(self, data, code=200):
         self.send_response(code)
