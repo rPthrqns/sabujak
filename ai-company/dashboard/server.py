@@ -81,7 +81,7 @@ def create_company(name, topic, lang="ko"):
         agent_workspace.mkdir(parents=True, exist_ok=True)
         subprocess.run(
             ['openclaw', 'agents', 'add', agent_id,
-             '--workspace', str(agent_workspace), '--non-interactive'],
+             '--workspace', str(agent_workspace), '--force'],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
         )
 
@@ -237,10 +237,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 for agent in company.get('agents', []):
                     agent_id = agent.get('agent_id', '')
                     if agent_id:
-                        subprocess.Popen(
-                            ['openclaw', 'agents', 'delete', agent_id, '--non-interactive'],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                        )
+                        try:
+                            subprocess.run(
+                                ['openclaw', 'agents', 'delete', agent_id, '--force'],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15
+                            )
+                        except Exception as e:
+                            print(f"[WARN] agent delete failed {agent_id}: {e}")
                 # Delete workspace data
                 import shutil
                 company_dir = DATA / cid
@@ -276,7 +279,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             try:
                 subprocess.run(
                     ['openclaw', 'agents', 'add', agent_id,
-                     '--workspace', str(agent_workspace), '--non-interactive'],
+                     '--workspace', str(agent_workspace), '--force'],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
                 )
             except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
@@ -296,6 +299,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 update_company(cid, {"agents": company['agents'], "activity_log": company['activity_log']})
 
             self._json({"ok": True, "agent": agent})
+
+        elif self.path.startswith('/api/agent-delete/'):
+            parts = self.path.split('/')
+            cid = parts[-2]
+            aid = parts[-1]
+            company = get_company(cid)
+            if not company: self._json({"error": "not found"}, 404); return
+            agent = next((a for a in company['agents'] if a['id'] == aid), None)
+            if not agent: self._json({"error": "agent not found"}, 404); return
+            # Remove OpenClaw agent
+            agent_id = agent.get('agent_id', '')
+            if agent_id:
+                try:
+                    subprocess.run(['openclaw', 'agents', 'delete', agent_id, '--force'],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+                except: pass
+            # Remove from list
+            company['agents'] = [a for a in company['agents'] if a['id'] != aid]
+            now = datetime.now().strftime('%H:%M')
+            company['activity_log'].append({"time": now, "agent": "CEO", "text": f"👋 {agent.get('emoji','🤖')} {agent['name']} 퇴사"})
+            update_company(cid, {"agents": company['agents'], "activity_log": company['activity_log']})
+            self._json({"ok": True})
 
         else:
             self._json({"error": "not found"}, 404)

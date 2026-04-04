@@ -85,7 +85,16 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .modal input:focus,.modal select:focus{border-color:var(--accent)}
 .modal-actions{display:flex;gap:8px;margin-top:20px;justify-content:flex-end}
 .modal-cancel{background:var(--card);border:1px solid #374151;color:var(--dim);padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px}
-.modal-submit{background:linear-gradient(135deg,var(--accent),var(--accent2));color:white;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px}
+.modal-submit{background:linear-gradient(135deg,var(--accent),var(--accent2));color:white;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px;position:relative;transition:opacity .2s}
+.modal-submit.loading{pointer-events:none;opacity:.7}
+.modal-submit.loading::after{content:'';position:absolute;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:btn-spin .6s linear infinite;top:50%;left:50%;margin:-7px 0 0 -7px}
+.modal-submit.loading span{opacity:0}
+@keyframes btn-spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:24px;right:24px;background:#1e293b;color:#e2e8f0;padding:12px 20px;border-radius:10px;font-size:13px;z-index:200;animation:toast-in .3s ease;box-shadow:0 4px 20px rgba(0,0,0,.4);border:1px solid #334155;max-width:320px}
+.toast.fade-out{animation:toast-out .3s ease forwards}
+@keyframes toast-in{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes toast-out{to{opacity:0;transform:translateY(20px)}}
+.loading-toast::before{content:'';display:inline-block;width:12px;height:12px;border:2px solid #475569;border-top-color:#00d4ff;border-radius:50%;animation:btn-spin .6s linear infinite;margin-right:8px;vertical-align:middle}
 .topic-suggestions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .topic-chip{background:var(--card);border:1px solid #374151;border-radius:6px;padding:4px 10px;font-size:11px;color:var(--dim);cursor:pointer}
 .topic-chip:hover,.topic-chip.selected{border-color:var(--accent);color:var(--text)}
@@ -183,7 +192,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     <textarea id="a-prompt" style="width:100%;background:var(--card);border:1px solid #374151;border-radius:8px;padding:9px 12px;color:var(--text);font-size:12px;outline:none;resize:vertical;min-height:60px" placeholder="에이전트의 성격과 역할을 설명하세요..."></textarea>
     <div class="modal-actions">
       <button class="modal-cancel" onclick="closeAgentModal()">취소</button>
-      <button class="modal-submit" onclick="addAgent()">추가</button>
+      <button class="modal-submit" id="btn-agent" onclick="addAgent()"><span>추가</span></button>
     </div>
   </div>
 </div>
@@ -205,7 +214,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     </div>
     <div class="modal-actions">
       <button class="modal-cancel" data-i18n="cancel" onclick="closeModal()">취소</button>
-      <button class="modal-submit" data-i18n="submit" onclick="createCompany()">생성</button>
+      <button class="modal-submit" id="btn-create" data-i18n="submit" onclick="createCompany()"><span>생성</span></button>
     </div>
   </div>
 </div>
@@ -296,7 +305,7 @@ function renderCompany(c){
     const prog=total?Math.round(done/total*100):0,hasActive=tasks.some(t=>t.status==='in-progress');
     const cls=a.status==='idle'?'idle':hasActive?'working':'active';
     const lbl=cls==='working'?'작업중':cls==='active'?'활성':'대기';
-    return `<div class="agent-card ${cls}"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span><span class="agent-tag ${cls}">${lbl}</span></div>${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
+    return `<div class="agent-card ${cls}"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span><span style="margin-left:auto;font-size:11px;color:var(--dim);cursor:pointer" onclick="event.stopPropagation();deleteAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="삭제">✕</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span><span class="agent-tag ${cls}">${lbl}</span></div>${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
   }).join('');
   const allTasks=c.agents.flatMap(a=>(a.tasks||[]).map(t=>({...t,agent:a})));
   document.getElementById('task-list').innerHTML=allTasks.length?allTasks.map(t=>{
@@ -334,17 +343,31 @@ document.getElementById('chat-input').addEventListener('keydown',e=>{if(e.key===
 function openModal(){document.getElementById('modal').classList.add('show')}
 function closeModal(){document.getElementById('modal').classList.remove('show')}
 function setTopic(t){document.getElementById('m-topic').value=t}
+function toast(msg,duration=3000){const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);setTimeout(()=>{el.classList.add('fade-out');setTimeout(()=>el.remove(),300)},duration)}
+function toastLoading(msg){const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);return el}
+function toastDone(el,msg,duration=3000){if(!el||!el.parentNode)return;el.textContent=msg;setTimeout(()=>{el.classList.add('fade-out');setTimeout(()=>el.remove(),300)},duration)}
 
 async function deleteCompany(cid,name){
   if(!confirm(`"${name}" 회사와 모든 에이전트를 삭제하시겠습니까?`))return;
+  const t=toastLoading(`"${name}" 삭제 중...`);
   const res=await fetch('/api/company/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:cid})});
   const data=await res.json();
-  if(data.ok){currentCompany=null;lastChatLen=0;document.getElementById('chat-messages').innerHTML='';load()}
+  if(data.ok){toastDone(t,`"${name}" 회사가 삭제되었습니다`);currentCompany=null;lastChatLen=0;document.getElementById('chat-messages').innerHTML='';load()}
+  else toastDone(t,'삭제 실패')
 }
 
 function openAgentModal(){document.getElementById('agent-modal').classList.add('show')}
 function closeAgentModal(){document.getElementById('agent-modal').classList.remove('show')}
 function pickEmoji(e){document.getElementById('a-emoji').value=e;document.querySelectorAll('.emoji-opt').forEach(el=>el.classList.remove('selected'));event.target.classList.add('selected')}
+
+async function deleteAgent(cid,aid,label){
+  if(!confirm(`"${label}" 에이전트를 삭제하시겠습니까?`))return;
+  const t=toastLoading(`"${label}" 삭제 중...`);
+  const res=await fetch(`/api/agent-delete/${cid}/${aid}`,{method:'POST'});
+  const data=await res.json();
+  if(data.ok){toastDone(t,`"${label}" 에이전트가 삭제되었습니다`);refreshCompany()}
+  else toastDone(t,'삭제 실패')
+}
 
 async function addAgent(){
   const name=document.getElementById('a-name').value.trim();
@@ -352,6 +375,8 @@ async function addAgent(){
   const emoji=document.getElementById('a-emoji').value;
   const prompt=document.getElementById('a-prompt').value.trim();
   if(!name||!role){alert('이름과 역할을 입력하세요');return}
+  const btn=document.getElementById('btn-agent');btn.classList.add('loading');
+  const t=toastLoading(`"${name}" 에이전트 생성 중...`);
   const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15000);
   try{
   const res=await fetch(`/api/agent-add/${currentCompany}`,{
@@ -359,16 +384,26 @@ async function addAgent(){
   });
   clearTimeout(timer);
   const data=await res.json();
-  if(data.ok){closeAgentModal();refreshCompany();document.getElementById('a-name').value='';document.getElementById('a-role').value='';document.getElementById('a-prompt').value='';document.getElementById('a-emoji').value='🤖'}
-  }catch(e){clearTimeout(timer);alert('에이전트 생성 실패: '+e.message)}
+  if(data.ok){toastDone(t,`"${emoji} ${name}" 에이전트가 합류했습니다!`);closeAgentModal();refreshCompany();document.getElementById('a-name').value='';document.getElementById('a-role').value='';document.getElementById('a-prompt').value='';document.getElementById('a-emoji').value='🤖'}
+  else toastDone(t,'에이전트 생성 실패')
+  }catch(e){clearTimeout(timer);toastDone(t,'에이전트 생성 실패: '+e.message)}
+  finally{btn.classList.remove('loading')}
 }
 
 async function createCompany(){
   const name=document.getElementById('m-name').value.trim(),topic=document.getElementById('m-topic').value.trim();
   if(!name||!topic){alert('Enter name and topic');return}
-  const res=await fetch('/api/companies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,topic,lang:'ko'})});
+  const btn=document.getElementById('btn-create');btn.classList.add('loading');
+  const t=toastLoading(`"${name}" 회사 생성 중...`);
+  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15000);
+  try{
+  const res=await fetch('/api/companies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,topic,lang:'ko'}),signal:controller.signal});
+  clearTimeout(timer);
   const data=await res.json();
-  if(data.ok){closeModal();currentCompany=data.company.id;lastChatLen=0;load()}
+  if(data.ok){toastDone(t,`"${name}" 회사가 생성되었습니다!`);closeModal();currentCompany=data.company.id;lastChatLen=0;load()}
+  else toastDone(t,'회사 생성 실패')
+  }catch(e){clearTimeout(timer);toastDone(t,'회사 생성 실패: '+e.message)}
+  finally{btn.classList.remove('loading')}
 }
 
 renderLangSwitch();applyLang();load();setInterval(refreshCompany,3000);
