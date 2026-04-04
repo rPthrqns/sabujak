@@ -57,6 +57,56 @@ def get_org_for_topic(topic):
             return org
     return TOPIC_ORGS["default"]
 
+ROLE_MAP = {
+    'ceo': ('CEO', '최고경영자', '👔'), 'cto': ('CTO', '기술총괄', '💻'),
+    'cfo': ('CFO', '재무총괄', '💰'), 'coo': ('COO', '운영총괄', '⚙️'),
+    'cmo': ('CMO', '마케팅총괄', '📢'), 'cpo': ('CPO', '제품총괄', '📦'),
+    'chro': ('CHRO', '인사총괄', '👥'), 'cso': ('CSO', '영업총괄', '🤝'),
+    'designer': ('디자이너', 'UI/UX 디자인', '🎨'), 'developer': ('개발자', '프론트엔드/백엔드', '👨‍💻'),
+    'sales': ('영업팀', '영업 및 고객관계', '📊'), 'support': ('고객지원', '고객 서비스', '🎧'),
+    'marketing': ('마케팅팀', '디지털 마케팅', '📣'), 'hr': ('인사팀', '인사 및 채용', '📋'),
+    'legal': ('법무팀', '법무 및 컴플라이언스', '⚖️'), 'data': ('데이터팀', '데이터 분석', '📈'),
+    'pr': ('홍보팀', '홍보 및 PR', '🎤'), 'planner': ('기획자', '서비스 기획', '📝'),
+}
+
+def auto_create_agents(cid, company, text, time_str):
+    """Detect agent creation intent and auto-create agents."""
+    keywords = ['만들', '생성', '추가', '고용', '채용', '영입', '합류', '배치', '구성']
+    if not any(kw in text for kw in keywords):
+        return []
+
+    existing_ids = {a['id'] for a in company.get('agents', [])}
+    created_logs = []
+
+    for key, (name, role, emoji) in ROLE_MAP.items():
+        if key in existing_ids:
+            continue
+        # Check if the role is mentioned in text
+        if name.lower() in text.lower() or key in text.lower() or role in text:
+            aid = key
+            agent_id = f"{cid}-{aid}"
+            agent_workspace = DATA / cid / "workspaces" / aid
+            agent_workspace.mkdir(parents=True, exist_ok=True)
+            if not (agent_workspace / "AGENTS.md").exists():
+                (agent_workspace / "AGENTS.md").write_text("# AGENTS.md\n")
+            if not (agent_workspace / "SOUL.md").exists():
+                (agent_workspace / "SOUL.md").write_text(f"# SOUL.md\n당신은 '{name}'({role})입니다.\n")
+            try:
+                subprocess.run(
+                    ['openclaw', 'agents', 'add', agent_id,
+                     '--workspace', str(agent_workspace), '--non-interactive'],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
+                )
+            except: pass
+            agent = {"id": aid, "agent_id": agent_id, "name": name, "emoji": emoji,
+                     "role": role, "status": "active", "tasks": [], "messages": [], "prompt": ""}
+            company['agents'].append(agent)
+            created_logs.append({"time": time_str, "agent": "시스템", "text": f"🆕 {emoji} {name} ({role}) 합류"})
+
+    if created_logs:
+        update_company(cid, {"agents": company['agents'], "activity_log": company.get('activity_log', []) + created_logs})
+    return created_logs
+
 def init_companies():
     if not COMPANIES_FILE.exists():
         save_json(COMPANIES_FILE, [])
@@ -193,7 +243,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             mention = re.search(r'@(\w+)', text)
             target = mention.group(1).upper() if mention else 'CEO'
 
+            # Auto-detect agent creation requests (e.g. "CTO 만들어줘", "마케팅 담당자 추가해")
+            created_agents = auto_create_agents(cid, company, text, time_str)
+
             company["chat"].append(msg)
+            if created_agents:
+                company["activity_log"].extend(created_agents)
             company["activity_log"].append({"time": time_str, "agent": "마스터", "text": f"@{target} {text}"})
 
             # Queue for OpenClaw
