@@ -347,7 +347,7 @@ def start_task_thread(cid, task):
                     update_company(cid, {'recurring_tasks': tasks})
             except Exception as e:
                 print(f"[WARN] task {task['id']} execution error: {e}")
-                time.sleep(30)
+                time.sleep(15)
         _running_task_threads.discard(key)
     threading.Thread(target=_run, daemon=True).start()
 
@@ -568,7 +568,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             # Keep alive
             try:
                 while True:
-                    time.sleep(30)
+                    time.sleep(15)
                     wfile.write(b": keepalive\n\n")
                     wfile.flush()
             except:
@@ -884,8 +884,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         else:
             self._json({"error": "not found"}, 404)
 
-class ReusableTCPServer(socketserver.TCPServer):
+class ReusableTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = True
+    daemon_threads = True
 
 PROCESSORS = {}
 
