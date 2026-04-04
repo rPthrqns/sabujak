@@ -350,15 +350,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             update_company(cid, {"chat": company["chat"], "activity_log": company["activity_log"]})
             self._json({"ok": True, "msg": msg})
 
-            # Chain: detect @mentions in agent response and trigger next agent
-            mention = re.search(r'@(\w+)', text)
-            if mention:
-                target = mention.group(1).upper()
-                # Don't chain back to the same agent
-                if target != from_agent.upper():
-                    existing_ids = {a['id'] for a in company.get('agents', [])}
-                    if target.lower() in existing_ids:
-                        threading.Thread(target=trigger_processor, args=(cid, text, target), daemon=True).start()
+            # Chain: detect @mentions in agent response and trigger next agents
+            mentions = re.findall(r'@(\w+)', text)
+            if mentions:
+                existing_ids = {a['id'] for a in company.get('agents', [])}
+                for target in mentions:
+                    target_upper = target.upper()
+                    if target_upper != from_agent.upper() and target.lower() in existing_ids:
+                        threading.Thread(target=trigger_processor, args=(cid, text, target_upper), daemon=True).start()
 
         elif self.path == '/api/company/delete':
             cid = body.get('id')
@@ -490,7 +489,10 @@ def trigger_processor(cid, text, target):
 메시지: "{text}"
 답변:"""
 
-    PROCESSORS[cid] = True
+    lock_key = f"{cid}:{agent['id']}"
+    if lock_key in PROCESSORS:
+        return
+    PROCESSORS[lock_key] = True
     try:
         proc = subprocess.Popen(
             ['openclaw', 'agent', '--agent', agent_id, '--local', '-m', prompt],
@@ -525,7 +527,7 @@ def trigger_processor(cid, text, target):
     except Exception as e:
         print(f"Processor error: {e}")
     finally:
-        PROCESSORS.pop(cid, None)
+        PROCESSORS.pop(lock_key, None)
 
 init_companies()
 print(f"🚀 AI Company Hub: http://localhost:{PORT}")
