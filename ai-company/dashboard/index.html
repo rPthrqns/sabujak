@@ -326,29 +326,21 @@ function renderTabs(){
 
 async function selectCompany(cid){
   currentCompany=cid;lastChatLen=0;renderTabs();
-  const res=await fetch(`/api/company/${cid}`);const c=await res.json();
-  document.getElementById('chat-messages').innerHTML='';
-  renderCompany(c);
-  // Render existing chat on load
-  if(c.chat&&c.chat.length){
-    c.chat.forEach(m=>appendChat(m));lastChatLen=c.chat.length;
-  }
+  activeAgentFilter=null;
+  await refreshCompany();
 }
 
 async function refreshCompany(){
   if(!currentCompany)return;
   const res=await fetch(`/api/company/${currentCompany}`);const c=await res.json();
-  renderCompany(c);
+  // Full re-render from server (used only on load/switch)
+  document.getElementById('chat-messages').innerHTML='';
+  renderCompanyUI(c);
+  if(c.chat)c.chat.forEach(m=>appendChat(m));
+  lastChatLen=(c.chat||[]).length;
 }
 
 function renderCompany(c){
-  renderCompanyUI(c);
-  // Render chat messages
-  const chatEl=document.getElementById('chat-messages');
-  chatEl.innerHTML='';
-  if(activeAgentFilter)renderPanels();
-  else if(c.chat)c.chat.forEach(m=>appendChat(m));
-  lastChatLen=(c.chat||[]).length;
 }
 
 function renderCompanyUI(c){
@@ -470,9 +462,9 @@ async function sendChat(){
   }
   document.getElementById('chat-send').disabled=true;
   try{
-    const res=await fetch(`/api/chat/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:finalText})});
-    const data=await res.json();
-    if(data.ok){appendChat(data.msg);lastChatLen++;document.getElementById('typing-who').textContent=data.target+' ...';document.getElementById('typing').classList.add('show')}
+    await fetch(`/api/chat/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:finalText})});
+    // Don't render here — SSE company_update will handle it
+    document.getElementById('typing-who').textContent='...';document.getElementById('typing').classList.add('show');
   }catch(e){alert('Failed')}
   document.getElementById('chat-send').disabled=false;
 }
@@ -605,7 +597,6 @@ let sseReconnectTimer=null;
 function connectSSE(){
   const es=new EventSource('/api/sse');
   es.addEventListener('init',e=>{
-    // Just sync data, don't re-render (load() already handles it)
     const data=JSON.parse(e.data);
     if(data)companies=data;
   });
@@ -615,14 +606,13 @@ function connectSSE(){
       const c=data.company;
       const idx=companies.findIndex(c2=>c2.id===data.id);
       if(idx>=0)companies[idx]=c;
-      // Only append new messages we haven't seen
-      const chatLen=(c.chat||[]).length;
+      // Append only new messages
+      const chat=(c.chat||[]);const chatLen=chat.length;
       if(chatLen>lastChatLen){
-        const newMsgs=c.chat.slice(lastChatLen);
-        newMsgs.forEach(m=>appendChat(m));
+        chat.slice(lastChatLen).forEach(m=>appendChat(m));
         lastChatLen=chatLen;
-        if(newMsgs.some(m=>m.type==='agent')) document.getElementById('typing').classList.remove('show');
       }
+      if(chat.slice(lastChatLen).some(m=>m.type==='agent')) document.getElementById('typing').classList.remove('show');
       if(activeAgentFilter)renderPanels();
       else renderCompanyUI(c);
     }
