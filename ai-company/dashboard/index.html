@@ -72,6 +72,16 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .task-badge.in-progress{background:#78350f;color:#fcd34d}
 .task-badge.pending{background:var(--card);color:var(--dim);border:1px solid #374151}
 .task-assignee{font-size:9px;color:var(--dim);margin-top:2px}
+.rtask-card{background:var(--card);border-radius:8px;padding:9px;margin-bottom:5px;border-left:3px solid #4b5563;transition:all .15s}
+.rtask-card.running{border-left-color:var(--green)}.rtask-card.paused{border-left-color:var(--yellow)}.rtask-card.stopped{border-left-color:#ef4444;opacity:.6}
+.rtask-top{display:flex;align-items:center;gap:5px}
+.rtask-title{font-size:11px;font-weight:600;color:#f1f5f9;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rtask-status{font-size:10px;white-space:nowrap}
+.rtask-meta{font-size:9px;color:var(--dim);margin-top:3px}
+.rtask-result{font-size:9px;color:#94a3b8;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rtask-actions{display:flex;gap:4px;margin-top:5px}
+.rtask-btn{background:#1e293b;border:1px solid #374151;border-radius:5px;padding:2px 8px;font-size:9px;color:var(--dim);cursor:pointer;transition:all .1s}
+.rtask-btn:hover{border-color:var(--accent);color:var(--text)}
 .log-item{display:flex;gap:6px;padding:5px 0;border-bottom:1px solid #1a1a2e;font-size:10px;animation:fadeIn .2s}
 .log-avatar{width:22px;height:22px;border-radius:50%;background:var(--card);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
 .log-agent{font-size:10px;font-weight:600;color:#60a5fa}
@@ -161,7 +171,10 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     </div>
   </div>
   <div class="panel">
-    <div class="panel-title" data-i18n="taskTitle">📌 작업</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div class="panel-title" data-i18n="taskTitle" style="margin:0">🔄 정기 작업</div>
+      <button class="add-agent-btn" onclick="openTaskModal()" title="새 작업 추가">＋</button>
+    </div>
     <div id="task-list" style="overflow-y:auto;flex:1"></div>
   </div>
 </div>
@@ -217,6 +230,35 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     <div class="modal-actions">
       <button class="modal-cancel" data-i18n="cancel" onclick="closeModal()">취소</button>
       <button class="modal-submit" id="btn-create" data-i18n="submit" onclick="createCompany()"><span>생성</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- Task Add Modal -->
+<div class="modal-overlay" id="task-modal">
+  <div class="modal">
+    <h2>🔄 새 정기 작업</h2>
+    <label>에이전트</label>
+    <select id="t-agent" style="width:100%;background:var(--card);border:1px solid #374151;border-radius:8px;padding:9px 12px;color:var(--text);font-size:13px;outline:none"></select>
+    <label>작업 제목</label>
+    <input id="t-title" placeholder="예: 시장 트렌드 모니터링" />
+    <label>프롬프트 (에이전트에게 보낼 지시)</label>
+    <textarea id="t-prompt" style="width:100%;background:var(--card);border:1px solid #374151;border-radius:8px;padding:9px 12px;color:var(--text);font-size:12px;outline:none;resize:vertical;min-height:60px" placeholder="예: 현재 시장 트렌드를 분석하고 인사이트를 정리하세요"></textarea>
+    <label>실행 주기</label>
+    <select id="t-interval" style="width:100%;background:var(--card);border:1px solid #374151;border-radius:8px;padding:9px 12px;color:var(--text);font-size:13px;outline:none">
+      <option value="5">5분마다</option>
+      <option value="10">10분마다</option>
+      <option value="15">15분마다</option>
+      <option value="30">30분마다</option>
+      <option value="60" selected>1시간마다</option>
+      <option value="120">2시간마다</option>
+      <option value="360">6시간마다</option>
+      <option value="720">12시간마다</option>
+      <option value="1440">매일</option>
+    </select>
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closeTaskModal()">취소</button>
+      <button class="modal-submit" id="btn-task" onclick="addTask()"><span>생성</span></button>
     </div>
   </div>
 </div>
@@ -311,11 +353,25 @@ function renderCompany(c){
     return `<div class="agent-card ${cls}" style="${dis}"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span><span class="agent-tag ${cls}" style="margin-left:auto">${lbl}</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:4px" onclick="event.stopPropagation();deleteAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="삭제">✕</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span></div>${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
   }).join('');
   const allTasks=c.agents.flatMap(a=>(a.tasks||[]).map(t=>({...t,agent:a})));
-  document.getElementById('task-list').innerHTML=allTasks.length?allTasks.map(t=>{
-    const cls=t.status==='completed'?'completed':t.status==='in-progress'?'in-progress':'pending';
-    const lbl=t.status==='completed'?'완료':t.status==='in-progress'?'진행중':'대기';
-    return `<div class="task-item"><div class="task-title">${t.title} <span class="task-badge ${cls}">${lbl}</span></div><div class="task-assignee">${t.agent.emoji} ${t.agent.name}</div></div>`;
-  }).join(''):`<div style="color:var(--dim);text-align:center;padding:14px;font-size:10px">—</div>`;
+  // Recurring tasks
+  const rtasks=c.recurring_tasks||[];
+  let taskHtml='';
+  if(rtasks.length){
+    taskHtml=rtasks.map(t=>{
+      const s=t.status==='running'?'🔄 실행 중':t.status==='paused'?'⏸️ 대기':'⏹️ 중지';
+      const lastR=t.last_run?new Date(t.last_run).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'—';
+      const nextR=t.next_run?new Date(t.next_run).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'—';
+      const lastResult=t.results&&t.results.length?t.results[t.results.length-1].text:'';
+      const intLbl=t.interval_minutes>=1440?`${Math.round(t.interval_minutes/1440)}일`:t.interval_minutes>=60?`${t.interval_minutes/60}시간`:`${t.interval_minutes}분`;
+      let btns='';
+      if(t.status==='running') btns=`<button class="rtask-btn" onclick="taskAction('pause','${t.id}')">⏸ 대기</button><button class="rtask-btn" onclick="taskAction('stop','${t.id}')">⏹ 중지</button>`;
+      else if(t.status==='paused') btns=`<button class="rtask-btn" onclick="taskAction('resume','${t.id}')">▶ 재개</button><button class="rtask-btn" onclick="taskAction('stop','${t.id}')">⏹ 중지</button>`;
+      return `<div class="rtask-card ${t.status}"><div class="rtask-top"><span>${t.agent_emoji}</span><span class="rtask-title" title="${t.title}">${t.title}</span><span class="rtask-status">${s}</span></div><div class="rtask-meta">${intLbl}마다 · 마지막: ${lastR} · 다음: ${nextR}</div>${lastResult?`<div class="rtask-result" title="${lastResult.replace(/"/g,'&quot;')}">💬 ${lastResult}</div>`:''}<div class="rtask-actions">${btns}</div></div>`;
+    }).join('');
+  } else {
+    taskHtml=`<div style="color:var(--dim);text-align:center;padding:14px;font-size:10px">정기 작업 없음<br><span style="font-size:9px">채팅에서 "모니터링", "정기적" 등으로 자동 생성</span></div>`;
+  }
+  document.getElementById('task-list').innerHTML=taskHtml;
   if(c.chat&&c.chat.length>lastChatLen){
     const newMsgs=c.chat.slice(lastChatLen);
     newMsgs.forEach(m=>appendChat(m));lastChatLen=c.chat.length;
@@ -412,6 +468,41 @@ async function createCompany(){
   else toastDone(t,'회사 생성 실패')
   }catch(e){clearTimeout(timer);toastDone(t,'회사 생성 실패: '+e.message)}
   finally{btn.classList.remove('loading')}
+}
+
+function openTaskModal(){
+  if(!currentCompany)return;
+  // Populate agent select
+  fetch(`/api/company/${currentCompany}`).then(r=>r.json()).then(c=>{
+    const sel=document.getElementById('t-agent');
+    sel.innerHTML=c.agents.map(a=>`<option value="${a.id}">${a.emoji} ${a.name}</option>`).join('');
+  });
+  document.getElementById('task-modal').classList.add('show');
+}
+function closeTaskModal(){document.getElementById('task-modal').classList.remove('show')}
+
+async function addTask(){
+  const agent_id=document.getElementById('t-agent').value;
+  const title=document.getElementById('t-title').value.trim();
+  const prompt=document.getElementById('t-prompt').value.trim();
+  const interval=parseInt(document.getElementById('t-interval').value);
+  if(!title||!prompt){alert('제목과 프롬프트를 입력하세요');return}
+  const btn=document.getElementById('btn-task');btn.classList.add('loading');
+  try{
+    const res=await fetch(`/api/task-add/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,prompt,interval_minutes:interval,agent_id})});
+    const data=await res.json();
+    if(data.ok){toast(`🔄 "${title}" 작업이 생성되었습니다`);closeTaskModal();document.getElementById('t-title').value='';document.getElementById('t-prompt').value='';refreshCompany()}
+    else toast('작업 생성 실패')
+  }catch(e){toast('작업 생성 실패')}
+  finally{btn.classList.remove('loading')}
+}
+
+async function taskAction(action,taskId){
+  const endpoint=action==='pause'?'task-pause':action==='resume'?'task-resume':'task-stop';
+  try{
+    await fetch(`/api/${endpoint}/${currentCompany}/${taskId}`,{method:'POST'});
+    refreshCompany();
+  }catch(e){toast('작업 상태 변경 실패')}
 }
 
 renderLangSwitch();applyLang();load();setInterval(refreshCompany,3000);

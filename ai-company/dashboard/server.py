@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """AI Company Hub - Multi-company Dashboard Server"""
-import json, os, re, http.server, socketserver, subprocess, threading
+import json, os, re, http.server, socketserver, subprocess, threading, time, urllib.request
 from pathlib import Path
 from datetime import datetime
 
@@ -178,6 +178,212 @@ def auto_create_agents(cid, company, text, time_str):
         update_company(cid, {"agents": company['agents'], "activity_log": company.get('activity_log', []) + created_logs})
     return created_logs
 
+# ─── Recurring Task System ───
+TASK_KEYWORDS = ['모니터링', '감시', '정기', '주기', '매시간', '매일', '자동', '반복', '정기적']
+TASK_INTERVAL_KEYWORDS = {
+    '매시간': 60, '한시간마다': 60, '1시간마다': 60, '시간마다': 60,
+    '매일': 1440, '하루에한번': 1440, '매분': 1, '30분마다': 30, '30분': 30,
+    '10분마다': 10, '10분': 10, '5분마다': 5, '5분': 5, '15분마다': 15, '15분': 15,
+    '2시간마다': 120, '2시간': 120, '3시간마다': 180, '6시간마다': 360, '12시간마다': 720,
+    '반나절마다': 720, '주': 10080, '일주일마다': 10080,
+}
+
+def detect_task_intent(text, company):
+    """Detect if text contains recurring task creation intent. Returns (should_create, title, prompt, interval) or None."""
+    if not any(kw in text for kw in TASK_KEYWORDS):
+        return None
+    # Extract interval
+    interval = 60  # default hourly
+    for kw, mins in sorted(TASK_INTERVAL_KEYWORDS.items(), key=lambda x: -len(x[0])):
+        if kw in text:
+            interval = mins
+            break
+    # Extract a rough title from text
+    title = text[:50].strip()
+    # Remove common filler words
+    for w in ['해줘', '해주세요', '부탁해', '부탁드려', '시작해', '진행해', '해도 돼', '좀', '부탁']:
+        title = title.replace(w, '').strip()
+    if not title:
+        title = '정기 작업'
+    # Detect target agent from @mention
+    mention = re.search(r'@(\w+)', text)
+    target = mention.group(1).lower() if mention else None
+    if not target and company:
+        agents = company.get('agents', [])
+        if agents:
+            target = agents[0]['id']
+    agent = None
+    if target and company:
+        agent = next((a for a in company.get('agents', []) if a['id'] == target), None)
+    return {
+        'title': title,
+        'prompt': text,
+        'interval_minutes': interval,
+        'agent_id': agent['id'] if agent else (target or 'ceo'),
+        'agent_name': agent['name'] if agent else (target.upper() if target else 'CEO'),
+        'agent_emoji': agent['emoji'] if agent else '👔',
+    }
+
+def add_recurring_task(cid, title, prompt, interval_minutes, agent_id, agent_name, agent_emoji):
+    """Add a new recurring task to company state."""
+    company = get_company(cid)
+    if not company:
+        return None
+    tasks = company.get('recurring_tasks', [])
+    task_id = f"task-{datetime.now().strftime('%m%d%H%M%S')}-{len(tasks)}"
+    task = {
+        'id': task_id,
+        'agent_id': agent_id,
+        'agent_name': agent_name,
+        'agent_emoji': agent_emoji,
+        'title': title,
+        'prompt': prompt,
+        'interval_minutes': interval_minutes,
+        'status': 'running',
+        'last_run': None,
+        'next_run': datetime.now().isoformat(),
+        'created_at': datetime.now().isoformat(),
+        'results': [],
+    }
+    tasks.append(task)
+    update_company(cid, {'recurring_tasks': tasks})
+    # Start task thread
+    start_task_thread(cid, task)
+    return task
+
+def get_recurring_tasks(cid):
+    company = get_company(cid)
+    if not company:
+        return []
+    return company.get('recurring_tasks', [])
+
+def update_task_status(cid, task_id, new_status):
+    company = get_company(cid)
+    if not company:
+        return
+    tasks = company.get('recurring_tasks', [])
+    for t in tasks:
+        if t['id'] == task_id:
+            t['status'] = new_status
+            if new_status == 'resumed':
+                t['status'] = 'running'
+                t['next_run'] = datetime.now().isoformat()
+                start_task_thread(cid, t)
+            break
+    update_company(cid, {'recurring_tasks': tasks})
+
+# Track running task threads to avoid duplicates
+_running_task_threads = set()
+
+def start_task_thread(cid, task):
+    """Start a daemon thread for a recurring task."""
+    key = f"{cid}:{task['id']}"
+    if key in _running_task_threads:
+        return
+    _running_task_threads.add(key)
+    def _run():
+        while key in _running_task_threads:
+            # Check if task still running
+            company = get_company(cid)
+            if not company:
+                break
+            tasks = company.get('recurring_tasks', [])
+            t = next((x for x in tasks if x['id'] == task['id']), None)
+            if not t or t['status'] != 'running':
+                _running_task_threads.discard(key)
+                break
+            # Sleep until next_run
+            try:
+                next_run = datetime.fromisoformat(t.get('next_run', datetime.now().isoformat()))
+                wait_secs = (next_run - datetime.now()).total_seconds()
+                if wait_secs > 0:
+                    time.sleep(min(wait_secs, 60))  # max 60s chunks to check status
+                else:
+                    time.sleep(1)
+            except:
+                time.sleep(5)
+            # Re-check status
+            company = get_company(cid)
+            if not company:
+                break
+            tasks = company.get('recurring_tasks', [])
+            t = next((x for x in tasks if x['id'] == task['id']), None)
+            if not t or t['status'] != 'running':
+                _running_task_threads.discard(key)
+                break
+            # Execute task
+            try:
+                result = execute_task(cid, t)
+                # Update task
+                company = get_company(cid)
+                if company:
+                    tasks = company.get('recurring_tasks', [])
+                    for x in tasks:
+                        if x['id'] == t['id']:
+                            x['last_run'] = datetime.now().isoformat()
+                            x['next_run'] = (datetime.now() + __import__('datetime').timedelta(minutes=x['interval_minutes'])).isoformat()
+                            x['results'].append(result)
+                            x['results'] = x['results'][-10:]  # keep last 10
+                            break
+                    update_company(cid, {'recurring_tasks': tasks})
+            except Exception as e:
+                print(f"[WARN] task {task['id']} execution error: {e}")
+                time.sleep(30)
+        _running_task_threads.discard(key)
+    threading.Thread(target=_run, daemon=True).start()
+
+def execute_task(cid, task):
+    """Execute a single task run, return result dict."""
+    agent_id_full = f"{cid}-{task['agent_id']}"
+    prompt = f"""당신은 '{task['agent_name']}'입니다. 다음 정기 작업을 수행하세요:
+
+{task['prompt']}
+
+간결하게 결과만 보고하세요. (2-3줄 이내)"""
+
+    start = time.time()
+    try:
+        proc = subprocess.Popen(
+            ['openclaw', 'agent', '--agent', agent_id_full, '--local', '-m', prompt],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        stdout, stderr = proc.communicate(timeout=90)
+        reply = stdout.decode().strip()
+        lines = reply.split('\n')
+        clean = [l for l in lines if not l.startswith('[') and not l.startswith('(agent') and l.strip()]
+        reply = '\n'.join(clean).strip()
+        elapsed = round(time.time() - start, 1)
+        # Post to chat
+        if reply and len(reply) > 1:
+            try:
+                payload = json.dumps({
+                    "from": task['agent_name'], "emoji": task['agent_emoji'],
+                    "to": "마스터", "text": f"🔄 [{task['title']}]\n{reply}"
+                }).encode()
+                req = urllib.request.Request(
+                    f'http://localhost:3000/api/agent-msg/{cid}',
+                    data=payload, headers={'Content-Type': 'application/json'}
+                )
+                urllib.request.urlopen(req, timeout=5)
+            except: pass
+        return {"time": datetime.now().strftime('%H:%M'), "text": reply[:200] if reply else "(빈 응답)", "elapsed": elapsed}
+    except Exception as e:
+        return {"time": datetime.now().strftime('%H:%M'), "text": f"오류: {str(e)[:100]}", "elapsed": round(time.time() - start, 1)}
+
+def restore_running_tasks():
+    """On server start, restart threads for all running tasks."""
+    companies = load_json(COMPANIES_FILE) or []
+    for c in companies:
+        cid = c.get('id')
+        if not cid:
+            continue
+        state = get_company(cid)
+        if not state:
+            continue
+        for task in state.get('recurring_tasks', []):
+            if task.get('status') == 'running':
+                start_task_thread(cid, task)
+
 def init_companies():
     if not COMPANIES_FILE.exists():
         save_json(COMPANIES_FILE, [])
@@ -323,9 +529,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._json(load_json(COMPANIES_FILE))
         elif self.path.startswith('/api/company/'):
             cid = self.path.split('/')[-1]
+            if cid == 'task-list':
+                # /api/company/task-list/<cid> style - handle separately
+                self._json({"error": "not found"}, 404); return
             company = get_company(cid)
             if company: self._json(company)
             else: self._json({"error": "not found"}, 404)
+        elif self.path.startswith('/api/task-list/'):
+            cid = self.path.split('/')[-1]
+            self._json(get_recurring_tasks(cid))
         elif self.path == '/api/agents':
             self._json(AGENT_TEMPLATES)
         elif self.path == '/api/topics':
@@ -377,6 +589,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             # Immediately trigger processing via dedicated agent
             threading.Thread(target=trigger_processor, args=(cid, text, target), daemon=True).start()
+
+            # Auto-detect recurring task intent
+            task_info = detect_task_intent(text, company)
+            if task_info:
+                task = add_recurring_task(cid, task_info['title'], task_info['prompt'],
+                                          task_info['interval_minutes'], task_info['agent_id'],
+                                          task_info['agent_name'], task_info['agent_emoji'])
+                if task:
+                    company = get_company(cid)  # re-read
+                    company["chat"].append({"type": "system", "from": "시스템", "emoji": "🔄", "to": "",
+                        "text": f"🔄 정기 작업 생성: \"{task['title']}\" ({task['interval_minutes']}분마다, {task['agent_emoji']} {task['agent_name']})"})
+                    company["activity_log"].append({"time": time_str, "agent": "시스템", "text": f"🔄 정기 작업: {task['title']}"})
+                    update_company(cid, {"chat": company["chat"], "activity_log": company["activity_log"]})
 
             update_company(cid, {"chat": company["chat"], "activity_log": company["activity_log"]})
             self._json({"ok": True, "msg": msg, "target": target})
@@ -481,6 +706,50 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 update_company(cid, {"agents": company['agents'], "activity_log": company['activity_log']})
 
             self._json({"ok": True, "agent": agent})
+
+        elif self.path.startswith('/api/task-add/'):
+            cid = self.path.split('/')[-1]
+            company = get_company(cid)
+            if not company: self._json({"error": "not found"}, 404); return
+            title = body.get('title', '').strip()
+            prompt = body.get('prompt', '').strip()
+            interval = body.get('interval_minutes', 60)
+            agent_id = body.get('agent_id', 'ceo')
+            agent = next((a for a in company.get('agents', []) if a['id'] == agent_id), None)
+            if not agent: agent = company['agents'][0] if company.get('agents') else None
+            if not agent: self._json({"error": "no agents"}, 400); return
+            if not title or not prompt: self._json({"error": "title and prompt required"}, 400); return
+            task = add_recurring_task(cid, title, prompt, interval, agent['id'], agent['name'], agent['emoji'])
+            if task:
+                now_str = datetime.now().strftime('%H:%M')
+                company = get_company(cid)
+                company["chat"].append({"type": "system", "from": "시스템", "emoji": "🔄", "to": "",
+                    "text": f"🔄 정기 작업 생성: \"{title}\" ({interval}분마다)"})
+                company["activity_log"].append({"time": now_str, "agent": "시스템", "text": f"🔄 정기 작업: {title}"})
+                update_company(cid, {"chat": company["chat"], "activity_log": company["activity_log"]})
+                self._json({"ok": True, "task": task})
+            else:
+                self._json({"error": "failed to create task"}, 500)
+
+        elif self.path.startswith('/api/task-pause/'):
+            parts = self.path.split('/')
+            cid, task_id = parts[-2], parts[-1]
+            update_task_status(cid, task_id, 'paused')
+            _running_task_threads.discard(f"{cid}:{task_id}")
+            self._json({"ok": True})
+
+        elif self.path.startswith('/api/task-resume/'):
+            parts = self.path.split('/')
+            cid, task_id = parts[-2], parts[-1]
+            update_task_status(cid, task_id, 'resumed')
+            self._json({"ok": True})
+
+        elif self.path.startswith('/api/task-stop/'):
+            parts = self.path.split('/')
+            cid, task_id = parts[-2], parts[-1]
+            update_task_status(cid, task_id, 'stopped')
+            _running_task_threads.discard(f"{cid}:{task_id}")
+            self._json({"ok": True})
 
         elif self.path.startswith('/api/agent-delete/'):
             parts = self.path.split('/')
@@ -622,6 +891,7 @@ def trigger_processor(cid, text, target):
         _update_agent_status('active')
 
 init_companies()
+restore_running_tasks()
 print(f"🚀 AI Company Hub: http://localhost:{PORT}")
 
 with ReusableTCPServer(("", PORT), Handler) as httpd:
