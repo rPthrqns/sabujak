@@ -198,13 +198,15 @@ def auto_create_agents(cid, company, text, time_str):
     return created_logs
 
 # ─── Recurring Task System ───
-TASK_KEYWORDS = ['모니터링', '감시', '정기', '주기', '매시간', '매일', '자동', '반복', '정기적', '보고', '리포트', '상황공유', '업데이트', '보고해', '보고올려', '보고드려']
+TASK_KEYWORDS = ['모니터링', '감시', '정기', '주기', '매시간', '매일', '자동', '반복', '정기적', '보고', '리포트', '상황공유', '업데이트', '보고해', '보고올려', '보고드려', '매주', '주간', '격주', '월간', '매월', '매년']
 TASK_INTERVAL_KEYWORDS = {
     '매시간': 60, '한시간마다': 60, '1시간마다': 60, '시간마다': 60,
     '매일': 1440, '하루에한번': 1440, '매분': 1, '30분마다': 30, '30분': 30,
     '10분마다': 10, '10분': 10, '5분마다': 5, '5분': 5, '15분마다': 15, '15분': 15,
     '2시간마다': 120, '2시간': 120, '3시간마다': 180, '6시간마다': 360, '12시간마다': 720,
     '반나절마다': 720, '주': 10080, '일주일마다': 10080,
+    '매주': 10080, '주간': 10080, '매주금요일': 10080, '매주 금요일': 10080,
+    '격주': 20160, '월간': 43200, '매월': 43200, '매년': 525600,
 }
 
 def detect_task_intent(text, company):
@@ -665,12 +667,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             emoji = body.get('emoji', '👔')
             if not text or text in ('No reply from agent.', ''): self._json({"ok": False, "reason": "empty/no_reply"}); return
 
+            # Strip @마스터 mentions from agent responses
+            text = re.sub(r'@마스터\s*', '', text).strip()
+
             company = get_company(cid)
             if not company: self._json({"error": "not found"}, 404); return
 
             now = datetime.now()
             time_str = now.strftime('%H:%M')
-            msg = {"from": from_agent, "emoji": emoji, "text": f"@{to_agent} {text}", "time": time_str, "type": "agent"}
+            msg = {"from": from_agent, "emoji": emoji, "text": text, "time": time_str, "type": "agent"}
             company["chat"].append(msg)
             company["activity_log"].append({"time": time_str, "agent": from_agent, "text": f"@{to_agent} {text}"})
 
@@ -681,6 +686,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 update_company(cid, {"agents": company["agents"], "activity_log": company["activity_log"]})
                 self._json({"ok": True, "msg": msg, "created": [c["text"] for c in created_agents]})
                 return
+
+            # Auto-detect recurring task intent from agent messages (e.g. "매주 금요일 보고")
+            task_info = detect_task_intent(text, company)
+            if task_info:
+                task = add_recurring_task(cid, task_info['title'], task_info['prompt'],
+                                          task_info['interval_minutes'], task_info['agent_id'],
+                                          task_info['agent_name'], task_info['agent_emoji'])
+                if task:
+                    company = get_company(cid)
+                    company["chat"].append({"type": "system", "from": "시스템", "emoji": "🔄", "to": "",
+                        "text": f"🔄 정기 작업 생성: \"{task['title']}\" ({task['interval_minutes']}분마다, {task['agent_emoji']} {task['agent_name']})"})
+                    company["activity_log"].append({"time": time_str, "agent": "시스템", "text": f"🔄 정기 작업: {task['title']}"})
+                    update_company(cid, {"chat": company["chat"], "activity_log": company["activity_log"]})
+                    self._json({"ok": True, "msg": msg})
+                    return
 
             update_company(cid, {"chat": company["chat"], "activity_log": company["activity_log"]})
             self._json({"ok": True, "msg": msg})
