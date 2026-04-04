@@ -81,6 +81,29 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji):
     if bootstrap.exists():
         bootstrap.unlink()
 
+def register_agent(agent_id, agent_workspace, name, role, company_name, emoji):
+    """Register and activate an OpenClaw agent."""
+    setup_agent_workspace(agent_workspace, name, role, company_name, emoji)
+    try:
+        subprocess.run(
+            ['openclaw', 'agents', 'add', agent_id,
+             '--workspace', str(agent_workspace), '--non-interactive'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
+        )
+    except: pass
+    # Activate session by sending initial message
+    threading.Thread(target=activate_agent, args=(agent_id, name, role), daemon=True).start()
+
+def activate_agent(agent_id, name, role):
+    """Send initial message to open agent session."""
+    try:
+        subprocess.run(
+            ['openclaw', 'agent', '--agent', agent_id, '--local',
+             '-m', f'당신은 {name}({role})입니다. 준비 완료를 알려주세요.'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
+        )
+    except: pass
+
 ROLE_MAP = {
     'ceo': ('CEO', '최고경영자', '👔'), 'cto': ('CTO', '기술총괄', '💻'),
     'cfo': ('CFO', '재무총괄', '💰'), 'coo': ('COO', '운영총괄', '⚙️'),
@@ -110,14 +133,7 @@ def auto_create_agents(cid, company, text, time_str):
             aid = key
             agent_id = f"{cid}-{aid}"
             agent_workspace = DATA / cid / "workspaces" / aid
-            setup_agent_workspace(agent_workspace, name, role, company.get('name',''), emoji)
-            try:
-                subprocess.run(
-                    ['openclaw', 'agents', 'add', agent_id,
-                     '--workspace', str(agent_workspace), '--non-interactive'],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
-                )
-            except: pass
+            register_agent(agent_id, agent_workspace, name, role, company.get('name',''), emoji)
             agent = {"id": aid, "agent_id": agent_id, "name": name, "emoji": emoji,
                      "role": role, "status": "active", "tasks": [], "messages": [], "prompt": ""}
             company['agents'].append(agent)
@@ -148,14 +164,7 @@ def create_company(name, topic, lang="ko"):
 
         # Create real OpenClaw agent
         agent_workspace = DATA / company_id / "workspaces" / aid
-        setup_agent_workspace(agent_workspace, agent_name, agent_role, name, agent_emoji)
-        try:
-            subprocess.run(
-                ['openclaw', 'agents', 'add', agent_id,
-                 '--workspace', str(agent_workspace), '--non-interactive'],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
-            )
-        except: pass
+        register_agent(agent_id, agent_workspace, agent_name, agent_role, name, agent_emoji)
 
         agents.append({
             "id": aid, "agent_id": agent_id, "name": agent_name, "emoji": agent_emoji,
@@ -371,15 +380,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             # Create real OpenClaw agent
             agent_workspace = DATA / cid / "workspaces" / aid
-            setup_agent_workspace(agent_workspace, name, role, company.get('name',''), emoji)
-            try:
-                subprocess.run(
-                    ['openclaw', 'agents', 'add', agent_id,
-                     '--workspace', str(agent_workspace), '--non-interactive'],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
-                )
-            except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
-                pass  # agent creation is optional
+            register_agent(agent_id, agent_workspace, name, role, company.get('name',''), emoji)
 
             agent = {
                 "id": aid, "agent_id": agent_id, "name": name, "emoji": emoji,
