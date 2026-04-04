@@ -463,8 +463,9 @@ async function sendChat(){
   document.getElementById('chat-send').disabled=true;
   try{
     await fetch(`/api/chat/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:finalText})});
-    // Don't render here — SSE company_update will handle it
-    document.getElementById('typing-who').textContent='...';document.getElementById('typing').classList.add('show');
+    // Re-render from server to get authoritative state
+    await refreshCompany();
+    document.getElementById('typing').classList.add('show');
   }catch(e){alert('Failed')}
   document.getElementById('chat-send').disabled=false;
 }
