@@ -398,16 +398,10 @@ function mdToHtml(text){
     });
     html+='</table>';return '\n'+html+'\n';
   });
-  // Bold, italic, code, line breaks
+  // Bold, italic, code (before line breaks)
   h=h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
     .replace(/\*(.+?)\*/g,'<em>$1</em>')
     .replace(/`(.+?)`/g,'<code>$1</code>')
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    // restore HTML tables
-    .replace(/&lt;table&gt;/g,'<table>').replace(/&lt;\/table&gt;/g,'</table>')
-    .replace(/&lt;tr&gt;/g,'<tr>').replace(/&lt;\/tr&gt;/g,'</tr>')
-    .replace(/&lt;th&gt;/g,'<th>').replace(/&lt;\/th&gt;/g,'</th>')
-    .replace(/&lt;td&gt;/g,'<td>').replace(/&lt;\/td&gt;/g,'</td>')
     .replace(/\n/g,'<br>');
   return h;
 }
