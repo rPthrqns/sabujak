@@ -262,7 +262,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   <!-- Right: Kanban + Recurring Tasks tabs -->
   <div class="panel">
     <div class="right-tabs">
-      <button class="right-tab active" onclick="switchRightTab('kanban')">📋 칸반</button>
+      <button class="right-tab active" onclick="switchRightTab('kanban')">📋 대기열</button>
       <button class="right-tab" onclick="switchRightTab('recurring')">🔄 정기</button>
       <button class="right-tab" onclick="switchRightTab('deliverables')">📂 결과물</button>
     </div>
@@ -747,7 +747,7 @@ function updateMainHeight(){
 // ─── Right panel tab switch ───
 function switchRightTab(tab){
   currentRightTab=tab;
-  const labelMap={kanban:'칸반',recurring:'정기',deliverables:'결과물'};
+  const labelMap={kanban:'대기열',recurring:'정기',deliverables:'결과물'};
   const target=labelMap[tab]||'';
   document.querySelectorAll('.right-tab').forEach(el=>{
     el.classList.toggle('active',el.textContent.includes(target));
