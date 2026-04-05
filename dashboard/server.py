@@ -893,23 +893,43 @@ def register_agent(agent_id, agent_workspace, name, role, company_name, emoji, w
 
 def _register_and_activate(agent_id, workspace, name, role):
     """Background: register agent and activate session."""
+    import shutil
+    ws_path = Path(workspace)
+    agent_dir = Path.home() / '.openclaw' / 'agents' / agent_id / 'agent'
+    
+    # 에이전트 디렉토리에 워크스페이스 파일 복사
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    for fname in ['SOUL.md', 'AGENTS.md', 'USER.md', 'IDENTITY.md', 'TOOLS.md', 'HEARTBEAT.md']:
+        src = ws_path / fname
+        if src.exists():
+            shutil.copy2(src, agent_dir / fname)
+    
+    # BOOTSTRAP.md 삭제 (바로 응답하도록)
+    bootstrap = ws_path / "BOOTSTRAP.md"
+    if bootstrap.exists():
+        bootstrap.unlink()
+    bs2 = agent_dir / "BOOTSTRAP.md"
+    if bs2.exists():
+        bs2.unlink()
+    
     with AGENT_LOCK:
         try:
             subprocess.run(
-                ['openclaw', 'agents', 'add', agent_id, '--workspace', workspace, '--non-interactive'],
+                ['openclaw', 'agents', 'add', agent_id, '--workspace', str(ws_path), '--non-interactive'],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15
             )
         except: pass
-    bootstrap = Path(workspace) / "BOOTSTRAP.md"
-    if bootstrap.exists():
-        bootstrap.unlink()
+    
+    # 첫 메시지로 세션 활성화
     try:
         subprocess.run(
             ['openclaw', 'agent', '--agent', agent_id, '--local',
-             '-m', f'당신은 {name}({role})입니다. 확인만 하세요.'],
+             '-m', f'당신은 {name}({role})입니다. "확인"이라고만 답하세요.'],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
         )
-    except: pass
+        print(f"[register] {agent_id} ({name}) activated")
+    except Exception as e:
+        print(f"[register] {agent_id} activate failed: {e}")
 
 def auto_create_agents(cid, company, text, time_str):
     """Detect agent creation intent and auto-create agents."""
