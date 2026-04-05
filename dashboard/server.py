@@ -1312,9 +1312,10 @@ def trigger_processor(cid, text, target):
         prompt = f"""당신은 '{company_name}'의 {agent['name']}({agent['role']})입니다. 주제: {topic}
 
 팀원: {available_agents}
-워크스페이스: {agent_workspace}
 공유 결과물 폴더: {company_workspace}/deliverables/
 워크스페이스: {agent_workspace}
+
+⚠️ 중요: 팀원이 있으면 반드시 @CMO @CTO 등으로 작업을 분배하세요. 혼자서 모든 작업을 하지 마세요. 각 팀원의 역할에 맞게 @멘션으로 지시하세요.
 
 {COMPLEX_PROMPT}
 
@@ -1325,9 +1326,10 @@ def trigger_processor(cid, text, target):
         prompt = f"""당신은 '{company_name}'의 {agent['name']}({agent['role']})입니다. 주제: {topic}
 
 팀원: {available_agents}
-워크스페이스: {agent_workspace}
 공유 결과물 폴더: {company_workspace}/deliverables/
 워크스페이스: {agent_workspace}
+
+⚠️ 중요: 팀원이 있으면 반드시 @CMO @CTO 등으로 작업을 분배하세요. 혼자서 모든 작업을 하지 마세요. 각 팀원의 역할에 맞게 @멘션으로 지시하세요.
 
 {COMPLEX_PROMPT}
 
