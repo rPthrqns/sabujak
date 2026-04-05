@@ -983,6 +983,8 @@ def trigger_processor(cid, text, target):
     else:
         prompt = f"""당신은 '{company_name}'의 {agent['name']}({agent['role']})입니다. 주제: {topic}
 
+팀원: {available_agents}
+
 규칙:
 - 부트스트랩/초기화는 건너뛰고 즉시 응답하세요
 - 당신의 상사는 @CEO입니다. 모든 보고는 @CEO에게 하세요
