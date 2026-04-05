@@ -832,7 +832,7 @@ COMPLEX_PROMPT = """
 6. **복기(Learn)** — 결과 검증, 교훈을 메모리에 기록
 
 ## 결과물 생성 (핵심)
-작업 결과는 반드시 `deliverables/` 폴더에 파일로 저장하세요.
+작업 결과는 반드시 `_shared/deliverables/` 폴더에 파일로 저장하세요. 모든 팀원이 이 폴더를 공유합니다.
 - 기획서, 보고서, 계획안 → `.md` 파일
 - 코드, 설정 → `.py`, `.js`, `.json` 파일
 - 파일을 작성한 후 채팅에서는 간단히 "📄 [파일명] 작성 완료 - 핵심 요약"만 보고하세요.
@@ -1222,6 +1222,8 @@ def trigger_processor(cid, text, target):
     topic = company.get('topic', '')
 
     agent_workspace = DATA / cid / "workspaces" / agent['id']
+    company_workspace = DATA / cid / "_shared"
+    company_workspace.mkdir(parents=True, exist_ok=True)
     if not agent_workspace.exists():
         register_agent(agent_id, agent_workspace, agent['name'], agent['role'], company_name, emoji)
         time.sleep(3)
@@ -1235,8 +1237,10 @@ def trigger_processor(cid, text, target):
     # 대신 워크스페이스 파일을 읽어서 컨텍스트 구성
     file_context_parts = []
     
-    # 1) deliverables/ 파일 목록 + 내용 (최대 3개)
-    del_dir = agent_workspace / "deliverables"
+    # 1) 공유 deliverables/ 파일 목록 + 내용 (최대 3개)
+    shared_dir = company_workspace / "deliverables"
+    shared_dir.mkdir(parents=True, exist_ok=True)
+    del_dir = shared_dir
     if del_dir.exists():
         files = sorted(del_dir.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True)
         file_list = [f.name for f in files if f.is_file()]
@@ -1289,7 +1293,8 @@ def trigger_processor(cid, text, target):
 
 팀원: {available_agents}
 워크스페이스: {agent_workspace}
-결과물 폴더: {agent_workspace}/deliverables/
+공유 결과물 폴더: {company_workspace}/_shared/deliverables/
+워크스페이스: {agent_workspace}
 
 {COMPLEX_PROMPT}
 
@@ -1301,7 +1306,8 @@ def trigger_processor(cid, text, target):
 
 팀원: {available_agents}
 워크스페이스: {agent_workspace}
-결과물 폴더: {agent_workspace}/deliverables/
+공유 결과물 폴더: {company_workspace}/_shared/deliverables/
+워크스페이스: {agent_workspace}
 
 {COMPLEX_PROMPT}
 
@@ -1491,25 +1497,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             cid = self.path.split('/')[-1]
             self._json(get_board_tasks(cid))
         elif self.path.startswith('/api/deliverables/'):
-            cid = self.path.replace('/api/deliverables/', '')
-            agent_id = None
-            if '/' in cid:
-                cid, agent_id = cid.split('/', 1)
-            ws = DATA / cid / 'workspaces'
+            cid = self.path.replace('/api/deliverables/', '').split('/')[0]
+            shared_dir = DATA / cid / '_shared' / 'deliverables'
             files = []
-            if ws.exists():
-                if agent_id:
-                    d = ws / agent_id / 'deliverables'
-                else:
-                    # 모든 에이전트 deliverables 합치기
-                    d = ws
-                if d.exists():
-                    for f in sorted(d.rglob('*'), key=lambda x: x.stat().st_mtime, reverse=True):
-                        if f.is_file() and not f.name.startswith('.') and 'deliverables' in str(f):
-                            rel = str(f.relative_to(ws))
-                            size = f.stat().st_size
-                            mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime('%m-%d %H:%M')
-                            files.append({'path': rel, 'size': size, 'modified': mtime})
+            if shared_dir.exists():
+                for f in sorted(shared_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+                    if f.is_file() and not f.name.startswith('.'):
+                        size = f.stat().st_size
+                        mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime('%m-%d %H:%M')
+                        files.append({'path': f'_shared/deliverables/{f.name}', 'size': size, 'modified': mtime})
             self._json(files[:50])
         elif self.path.startswith('/api/approvals/'):
             cid = self.path.split('/')[-1]
