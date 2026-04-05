@@ -420,7 +420,13 @@ function renderPanels(){
   // Chat filter
   chatEl.innerHTML='';
   if(activeAgentFilter){
-    const filtered=(company.chat||[]).filter(m=>m.from&&m.from.toLowerCase()===activeAgentFilter.name.toLowerCase());
+    const isCEO=activeAgentFilter.id==='ceo';
+    const filtered=(company.chat||[]).filter(m=>{
+      if(!m.from)return false;
+      if(m.type==='system')return true; // always show system msgs
+      if(m.type==='user')return isCEO; // show user msgs only for CEO filter
+      return m.from.toLowerCase()===activeAgentFilter.name.toLowerCase();
+    });
     chatEl.innerHTML+=`<div style="text-align:center;padding:6px;font-size:10px;color:var(--accent);cursor:pointer;background:var(--card);border-radius:6px;margin-bottom:4px" onclick="activeAgentFilter=null;renderPanels()">🔍 ${activeAgentFilter.emoji} ${activeAgentFilter.name} 필터링 중 — 클릭하면 전체 보기</div>`;
     if(filtered.length===0) chatEl.innerHTML+=`<div style="text-align:center;padding:20px;color:var(--dim);font-size:11px">메시지 없음</div>`;
     else filtered.forEach(m=>appendChat(m));
