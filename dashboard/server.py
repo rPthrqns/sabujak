@@ -1766,48 +1766,40 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         # Chain mentions (에이전트→에이전트)
         existing_ids = {a['id'].lower() for a in company.get('agents', [])}
-        # 멘션 추출: @AGENT 한줄 or @AGENT ```멀티라인```
         block_re = re.compile(r'@(\w+)\s*```([\s\S]*?)```', re.MULTILINE)
         line_re = re.compile(r'@(\w+)\s+(.+)')
         seen = set()
-        # 1) 블록 멘션 처리
+        # 먼저 모든 멘션을 수집
+        pending_mentions = []
         for bm in block_re.finditer(mention_text or text):
             m_name = bm.group(1)
             instruction = bm.group(2).strip()
             upper = m_name.upper()
             if upper != from_agent.upper() and m_name.lower() in existing_ids and upper not in seen:
                 seen.add(upper)
-                lock_key = f"{cid}:{upper}"
-                # 체인 멘션도 칸반에 대기 추가 (멘션이면 무조건)
-                task_title = extract_task_from_instruction(instruction) or instruction[:30]
-                add_board_task(cid, task_title, upper.lower(), '대기', [], '')
-                update_company(cid, {'board_tasks': get_company(cid).get('board_tasks', [])})
-                print(f"[auto-task] {upper}: '{task_title}' 대기 추가 (체인 멘션)")
-                with PROCESSORS_LOCK:
-                    is_running = lock_key in PROCESSORS
-                if not is_running:
-                    threading.Thread(target=trigger_processor, args=(cid, instruction, upper), daemon=True).start()
-        # 2) 한줄 멘션 처리
+                pending_mentions.append((upper, instruction))
         for line in (mention_text or text).split('\n'):
             lm = line_re.match(line.strip())
             if lm:
                 m_name = lm.group(1)
                 instruction = lm.group(2).strip()
-                # 따옴표 제거
-                if instruction.startswith('"') and instruction.endswith('"'):
-                    instruction = instruction[1:-1].strip()
                 upper = m_name.upper()
                 if upper != from_agent.upper() and m_name.lower() in existing_ids and upper not in seen:
                     seen.add(upper)
-                    lock_key = f"{cid}:{upper}"
-                    # 한줄 멘션도 칸반에 대기 추가 (무조건)
-                    task_title = extract_task_from_instruction(instruction) or instruction[:30]
-                    add_board_task(cid, task_title, upper.lower(), '대기', [], '')
-                    update_company(cid, {'board_tasks': get_company(cid).get('board_tasks', [])})
-                    with PROCESSORS_LOCK:
-                        is_running = lock_key in PROCESSORS
-                    if not is_running:
-                        threading.Thread(target=trigger_processor, args=(cid, instruction, upper), daemon=True).start()
+                    pending_mentions.append((upper, instruction))
+        # 한 번에 대기열 추가 + 에이전트 실행
+        for upper, instruction in pending_mentions:
+            task_title = extract_task_from_instruction(instruction) or instruction[:30]
+            add_board_task(cid, task_title, upper.lower(), '대기', [], '')
+        if pending_mentions:
+            update_company(cid, {'board_tasks': get_company(cid).get('board_tasks', [])})
+        for upper, instruction in pending_mentions:
+            lock_key = f"{cid}:{upper}"
+            print(f"[auto-task] {upper}: task queued (chain mention)")
+            with PROCESSORS_LOCK:
+                is_running = lock_key in PROCESSORS
+            if not is_running:
+                threading.Thread(target=trigger_processor, args=(cid, instruction, upper), daemon=True).start()
 
     # ─── Company Delete Handler ───
     def _handle_company_delete(self, body):
