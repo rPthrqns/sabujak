@@ -1329,7 +1329,7 @@ def trigger_processor(cid, text, target):
 공유 결과물 폴더: {company_workspace}/deliverables/
 워크스페이스: {agent_workspace}
 
-@CEO에게 보고하세요. 받은 지시에 대해 구체적으로 작업을 수행하고, 결과물을 _shared/deliverables/에 저장하세요.
+@CEO에게 보고하세요. 팀원에게도 @멘션으로 작업을 요청할 수 있습니다. 받은 지시에 대해 구체적으로 작업을 수행하고, 결과물을 _shared/deliverables/에 저장하세요.
 
 {COMPLEX_PROMPT}
 
