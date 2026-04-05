@@ -104,6 +104,9 @@ import re
 def extract_task_from_instruction(text):
     """멘션 내용에서 작업명을 추출"""
     text = text.strip().strip('"').strip()
+    # 대시/불필요한 접두사 제거
+    text = re.sub(r'^[\s\-—–·•◆▶"",\']+\s*', '', text)
+    if not text: return None
     # 짧은 지시는 그대로
     if len(text) <= 30 and len(text) >= 2:
         return text
@@ -1292,13 +1295,16 @@ def trigger_processor(cid, text, target):
 
     _update_agent_status('working')
     # 내 칸반 대기 작업을 진행중으로 변경
-    try:
-        company = get_company(cid)
-        for t in company.get('board_tasks', []):
-            if t.get('agent_id') == agent['id'] and t.get('status') == '대기':
-                t['status'] = '진행중'
+    company = get_company(cid)
+    updated = False
+    for t in company.get('board_tasks', []):
+        if t.get('agent_id') == agent['id'] and t.get('status') == '대기':
+            t['status'] = '진행중'
+            updated = True
+            print(f"[kanban] '{t.get('title','')[:30]}' 대기→진행 ({agent_id})")
+    if updated:
+        save_company(company)
         update_company(cid, {'board_tasks': company['board_tasks']})
-    except: pass
     
     try:
         proc = subprocess.Popen(
@@ -1321,17 +1327,17 @@ def trigger_processor(cid, text, target):
             # 작업 명령 처리 (칸반 자동 업데이트)
             task_results = process_task_commands(cid, reply, agent['id'])
             
-            # 멘션에 대한 응답이면 가장 오래된 대기/진행 작업 자동 완료
-            if not task_results:
-                company = get_company(cid)
-                board_tasks = company.get('board_tasks', [])
-                my_pending = [t for t in board_tasks if t.get('agent_id') == agent['id'] and t.get('status') in ('대기', '진행중')]
-                if my_pending:
-                    my_pending[0]['status'] = '완료'
-                    my_pending[0]['updated_at'] = datetime.now().isoformat()
-                    save_company(company)
-                    update_company(cid, {'board_tasks': board_tasks})
-                    task_results = [f"🎉 '{my_pending[0]['title']}' 완료"]
+            # 응답 완료 시 가장 오래된 진행중 작업 자동 완료
+            company = get_company(cid)
+            board_tasks = company.get('board_tasks', [])
+            my_doing = [t for t in board_tasks if t.get('agent_id') == agent['id'] and t.get('status') == '진행중']
+            if my_doing:
+                my_doing[0]['status'] = '완료'
+                my_doing[0]['updated_at'] = datetime.now().isoformat()
+                save_company(company)
+                update_company(cid, {'board_tasks': board_tasks})
+                print(f"[kanban] '{my_doing[0].get('title','')[:30]}' 진행→완료 ({agent['id']})")
+                task_results = task_results or [f"🎉 '{my_doing[0]['title']}' 완료"]
             
             if task_results:
                 task_msg = ' '.join(task_results)
@@ -1653,7 +1659,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             # 멘션 내용에서 작업 자동 추출 → 타겟 칸반에 추가 (무조건)
             for target in targets:
                 task_title = extract_task_from_instruction(instruction) or instruction[:30]
-                add_board_task(cid, task_title, target, '대기', [], '')
+                add_board_task(cid, task_title, target.lower(), '대기', [], '')
                 update_company(cid, {'board_tasks': get_company(cid).get('board_tasks', [])})
                 threading.Thread(target=trigger_processor, args=(cid, instruction, target), daemon=True).start()
         elif not is_mention_msg:
@@ -1742,7 +1748,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 lock_key = f"{cid}:{upper}"
                 # 체인 멘션도 칸반에 대기 추가 (멘션이면 무조건)
                 task_title = extract_task_from_instruction(instruction) or instruction[:30]
-                add_board_task(cid, task_title, upper, '대기', [], '')
+                add_board_task(cid, task_title, upper.lower(), '대기', [], '')
                 update_company(cid, {'board_tasks': get_company(cid).get('board_tasks', [])})
                 print(f"[auto-task] {upper}: '{task_title}' 대기 추가 (체인 멘션)")
                 with PROCESSORS_LOCK:
@@ -1764,7 +1770,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     lock_key = f"{cid}:{upper}"
                     # 한줄 멘션도 칸반에 대기 추가 (무조건)
                     task_title = extract_task_from_instruction(instruction) or instruction[:30]
-                    add_board_task(cid, task_title, upper, '대기', [], '')
+                    add_board_task(cid, task_title, upper.lower(), '대기', [], '')
                     update_company(cid, {'board_tasks': get_company(cid).get('board_tasks', [])})
                     with PROCESSORS_LOCK:
                         is_running = lock_key in PROCESSORS
