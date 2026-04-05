@@ -1291,6 +1291,15 @@ def trigger_processor(cid, text, target):
     session_id = f"{agent_id}-turn-{int(time.time())}"
 
     _update_agent_status('working')
+    # 내 칸반 대기 작업을 진행중으로 변경
+    try:
+        company = get_company(cid)
+        for t in company.get('board_tasks', []):
+            if t.get('agent_id') == agent['id'] and t.get('status') == '대기':
+                t['status'] = '진행중'
+        update_company(cid, {'board_tasks': company['board_tasks']})
+    except: pass
+    
     try:
         proc = subprocess.Popen(
             ['openclaw', 'agent', '--agent', agent_id, '--session-id', session_id, '--local', '-m', prompt],
@@ -1311,6 +1320,19 @@ def trigger_processor(cid, text, target):
             
             # 작업 명령 처리 (칸반 자동 업데이트)
             task_results = process_task_commands(cid, reply, agent['id'])
+            
+            # 멘션에 대한 응답이면 가장 오래된 대기/진행 작업 자동 완료
+            if not task_results:
+                company = get_company(cid)
+                board_tasks = company.get('board_tasks', [])
+                my_pending = [t for t in board_tasks if t.get('agent_id') == agent['id'] and t.get('status') in ('대기', '진행중')]
+                if my_pending:
+                    my_pending[0]['status'] = '완료'
+                    my_pending[0]['updated_at'] = datetime.now().isoformat()
+                    save_company(company)
+                    update_company(cid, {'board_tasks': board_tasks})
+                    task_results = [f"🎉 '{my_pending[0]['title']}' 완료"]
+            
             if task_results:
                 task_msg = ' '.join(task_results)
                 try:
@@ -1654,9 +1676,47 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not company: self._json({"error": "not found"}, 404); return
 
         now = datetime.now(); time_str = now.strftime('%H:%M')
-        msg = {"from": from_agent, "emoji": emoji, "text": text, "time": time_str, "type": "agent"}
-        company["chat"].append(msg)
-        company["activity_log"].append({"time": time_str, "agent": from_agent, "text": text})
+        
+        # 에이전트 응답에서 멘션 부분과 일반 부분 분리
+        has_mentions = bool(re.search(r'@(\w+)', text))
+        normal_text, mention_text = text, ''
+        if has_mentions:
+            normal_parts, mention_parts = [], []
+            block_re = re.compile(r'@(\w+)\s*```([\s\S]*?)```', re.MULTILINE)
+            remaining = text
+            # 블록 멘션 추출
+            for bm in block_re.finditer(text):
+                before = text[:bm.start()].strip()
+                after = text[bm.end():].strip()
+                mention_parts.append(f"@{bm.group(1)} {bm.group(2).strip()}")
+                if before: normal_parts.append(before)
+                if after and not re.match(r'@\w+', after): normal_parts.append(after)
+            if not mention_parts:
+                # 블록 없으면 한줄 멘션
+                for line in text.split('\n'):
+                    lm = re.match(r'@(\w+)\s+(.+)', line.strip())
+                    if lm and lm.group(1).upper() != from_agent.upper():
+                        mention_parts.append(line.strip())
+                    else:
+                        normal_parts.append(line)
+            normal_text = '\n'.join(normal_parts).strip()
+            mention_text = '\n'.join(mention_parts).strip()
+        
+        # 일반 텍스트가 있으면 채팅에 저장
+        if normal_text:
+            msg = {"from": from_agent, "emoji": emoji, "text": normal_text, "time": time_str, "type": "agent"}
+            company["chat"].append(msg)
+            company["activity_log"].append({"time": time_str, "agent": from_agent, "text": normal_text})
+        
+        # 멘션 텍스트가 있으면 별도 채팅에 저장 (from = 멘션 발신자, mention = true)
+        if mention_text:
+            # 각 멘션 라인별로 저장
+            for ml in mention_text.split('\n'):
+                ml = ml.strip()
+                if not ml: continue
+                msg = {"from": from_agent, "emoji": emoji, "text": ml, "time": time_str, "type": "agent", "mention": True}
+                company["chat"].append(msg)
+            company["activity_log"].append({"time": time_str, "agent": from_agent, "text": mention_text})
 
         created_agents = auto_create_agents(cid, company, text, time_str)
         if created_agents:
@@ -1675,7 +1735,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         line_re = re.compile(r'@(\w+)\s+(.+)')
         seen = set()
         # 1) 블록 멘션 처리
-        for bm in block_re.finditer(text):
+        for bm in block_re.finditer(mention_text or text):
             m_name = bm.group(1)
             instruction = bm.group(2).strip()
             upper = m_name.upper()
@@ -1687,7 +1747,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if not is_running:
                     threading.Thread(target=trigger_processor, args=(cid, instruction, upper), daemon=True).start()
         # 2) 한줄 멘션 처리
-        for line in text.split('\n'):
+        for line in (mention_text or text).split('\n'):
             lm = line_re.match(line.strip())
             if lm:
                 m_name = lm.group(1)
