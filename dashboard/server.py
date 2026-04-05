@@ -21,6 +21,8 @@ def _reset_stuck_agents():
     """서버 시작 시 working 상태인 에이전트를 active로 리셋"""
     try:
         for f in sorted(DATA.glob('company-*.json')):
+            if '-queue' in f.stem:
+                continue
             cid = f.stem
             if cid.startswith('company-'):
                 c = get_company(cid)
@@ -332,6 +334,21 @@ def gen_id(prefix="id"):
 def init_companies():
     if not COMPANIES_FILE.exists():
         save_json(COMPANIES_FILE, [])
+    # 서버 시작 시 working 상태인 에이전트를 active로 리셋
+    for f in sorted(DATA.glob('company-*.json')):
+        if '-queue' in f.stem: continue
+        try:
+            data = load_json(f)
+            if not data: continue
+            changed = False
+            for a in data.get('agents', []):
+                if a.get('status') == 'working':
+                    a['status'] = 'active'
+                    changed = True
+            if changed:
+                save_json(f, data)
+                print(f"[reset] {f.stem}: stuck agents reset")
+        except: pass
     return load_json(COMPANIES_FILE)
 
 def get_company(cid):
@@ -2090,7 +2107,6 @@ def ensure_agents_registered():
 init_companies()
 ensure_agents_registered()
 restore_running_tasks()
-_reset_stuck_agents()
 print(f"🚀 AI Company Hub: http://localhost:{PORT}")
 
 with ReusableTCPServer(("", PORT), Handler) as httpd:
