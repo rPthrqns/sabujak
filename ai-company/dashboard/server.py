@@ -721,6 +721,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     target_upper = target.upper()
                     if target_upper != from_agent.upper() and target.lower() in existing_ids and target_upper not in seen:
                         seen.add(target_upper)
+                        # Non-CEO agents can only communicate with CEO
+                        if from_agent.upper() != 'CEO' and target_upper != 'CEO':
+                            continue
                         # Extract per-target instruction
                         agent_ids = [a['id'] for a in company['agents']]
                         instruction = text
