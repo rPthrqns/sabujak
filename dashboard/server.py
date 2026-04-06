@@ -1469,9 +1469,30 @@ def archive_inbox(cid, agent_id):
         except: pass
 
 
+def _clean_stale_locks():
+    """Remove lock files whose owner PID is dead."""
+    import glob
+    for lock in glob.glob(str(Path.home() / '.openclaw' / 'agents' / '**' / '*.lock'), recursive=True):
+        try:
+            content = Path(lock).read_text()
+            pid = int(re.search(r'pid=(\d+)', content).group(1)) if re.search(r'pid=(\d+)', content) else 0
+            if pid and not _pid_alive(pid):
+                Path(lock).unlink()
+                print(f"[lock] cleaned stale: {lock}")
+        except: pass
+
+def _pid_alive(pid):
+    import os
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
 def nudge_agent(cid, text, target):
     """Queue-based nudge: FIFO order, dedup recent, context-aware, no locks."""
     print(f"[nudge] called: cid={cid} target={target} text={text[:50]}")
+    _clean_stale_locks()
     company = get_company(cid)
     if not company:
         print(f"[nudge] company not found: {cid}")
