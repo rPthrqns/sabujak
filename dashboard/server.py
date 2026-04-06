@@ -1499,6 +1499,7 @@ def nudge_agent(cid, text, target):
             return
         _AGENT_BUSY.add(key)
         # Rebuild context for this message
+        company = get_company(cid)
         newspaper = generate_newspaper(cid)
         standup = read_agent_standup(cid, aid)
         inbox = read_agent_inbox(cid, aid)
@@ -1506,10 +1507,33 @@ def nudge_agent(cid, text, target):
         if newspaper: ctx_parts.append(f"=== 브리프 ===\n{newspaper}")
         if inbox: ctx_parts.append(f"=== 받은 메시지 (inbox) ===\n{inbox}")
         if standup: ctx_parts.append(f"=== 내 스탠드업 ===\n{standup}")
-        my_tasks = [t for t in get_company(cid).get('board_tasks', [])
-                    if t.get('agent_id') == aid and t.get('status') in ('대기', '진행중')]
-        if my_tasks:
-            ctx_parts.append("=== 내 작업 ===\n" + '\n'.join(f"- [{t.get('status','')}] {t.get('title','')}" for t in my_tasks[:5]))
+        # 칸반보드 전체 작업 (누가 뭘 하는지 파악)
+        all_tasks = company.get('board_tasks', [])
+        active_tasks = [t for t in all_tasks if t.get('status') in ('대기', '진행중')]
+        if active_tasks:
+            ctx_parts.append("=== 팀 작업 현황 ===\n" + '\n'.join(
+                f"- [{t.get('agent_id','')}] [{t.get('status','')}] {t.get('title','')}"
+                for t in active_tasks[:10]))
+        # 대기 중인 결재
+        pending_apr = company.get('approvals', [])
+        pending_apr = [a for a in pending_apr if a.get('status') == 'pending']
+        if pending_apr:
+            ctx_parts.append("=== 대기 중인 결재 ===\n" + '\n'.join(
+                f"- {a.get('from_agent','')} {a.get('from_emoji','')}: {a.get('detail','')[:80]}"
+                for a in pending_apr[-5:]))
+        # 최근 결과물
+        import glob as _glob
+        del_dir = DATA / cid / '_shared' / 'deliverables'
+        if del_dir.exists():
+            del_files = sorted(del_dir.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True)[:5]
+            if del_files:
+                ctx_parts.append("=== 최근 결과물 ===\n" + '\n'.join(f"- {f.name}" for f in del_files))
+        # 정기작업
+        recurring = company.get('recurring_tasks', [])
+        if recurring:
+            ctx_parts.append("=== 정기 작업 ===\n" + '\n'.join(
+                f"- [{t.get('agent_id','')}] {t.get('title','')} ({t.get('interval','')}분마다)"
+                for t in recurring[:5]))
         ctx = '\n\n'.join(ctx_parts)
         report_note = '\n\n⚠️ 작업 완료 후 반드시 결과를 @CEO에게 보고하세요. @CEO 멘션을 포함하세요.' if aid != 'ceo' else '\n\n⚠️ 팀원 결과를 취합한 후 @마스터에게 최종 보고하세요. @마스터 멘션을 포함하세요.'
         prompt = f"{ctx}\n\n메시지: {msg}{report_note}" if ctx else msg
