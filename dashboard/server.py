@@ -901,55 +901,114 @@ def load_conversation_summary(cid):
     except:
         return None
 
-def setup_agent_workspace(agent_workspace, name, role, company_name, emoji):
+# ─── i18n ───
+LANG_MAP = {"ko": "한국어", "en": "English"}
+
+def _s(key, lang, **kwargs):
+    """Simple i18n lookup with format kwargs."""
+    T = {
+        "role.intro": {"ko": "당신은 '{company}'의 {name}({role})입니다.", "en": "You are {name}({role}) of '{company}'."},
+        "role.report": {"ko": "팀원들에게 @멘션으로 지시하고, @CEO에게 보고하세요.", "en": "Instruct team members with @mention and report to @CEO."},
+        "speak.lang": {"ko": "한국어로 소통합니다.", "en": "Communicate in English."},
+        "complex.title": {"ko": "## 의사결정 프로토콜 (COMPLEX)", "en": "## Decision Protocol (COMPLEX)"},
+        "complex.intro": {"ko": "복잡한 작업은 다음 단계를 따르세요:", "en": "For complex tasks, follow these steps:"},
+        "complex.1": {"ko": "1. 관찰(Observe) — 현재 상황, 작업 상태 파악", "en": "1. Observe — Assess current situation and task status"},
+        "complex.2": {"ko": "2. 사고(Think) — 문제 분석, 위험 요소, 의존관계 확인", "en": "2. Think — Analyze problems, risks, dependencies"},
+        "complex.3": {"ko": "3. 계획(Plan) — 구체적 실행 계획 + 성공 기준", "en": "3. Plan — Concrete execution plan + success criteria"},
+        "complex.4": {"ko": "4. 준비(Build) — 작업 생성, 리소스 확인", "en": "4. Build — Create tasks, verify resources"},
+        "complex.5": {"ko": "5. 실행(Execute) — 계획 실행, 결과물을 파일로 저장", "en": "5. Execute — Run the plan, save deliverables as files"},
+        "complex.6": {"ko": "6. 복기(Learn) — 결과 검증, 교훈을 메모리에 기록", "en": "6. Learn — Verify results, record lessons in memory"},
+        "complex.simple": {"ko": "간단한 응답이면 바로 답변하세요. 복잡한 작업일 때만 위 단계를 따르세요.", "en": "For simple queries, respond directly. Follow these steps only for complex tasks."},
+        "brief.title": {"ko": "## 브리프", "en": "## Briefing"},
+        "brief.desc": {"ko": "- _shared/newspaper.md를 읽고 현재 상황 파악", "en": "- Read _shared/newspaper.md for current status"},
+        "inbox.title": {"ko": "## Inbox", "en": "## Inbox"},
+        "inbox.desc1": {"ko": "- inbox/ 폴더에 받은 지시가 있습니다", "en": "- You have instructions in the inbox/ folder"},
+        "inbox.desc2": {"ko": "- 확인 후 작업 수행, 응답하면 자동 보관됩니다", "en": "- Process them after reading; they auto-archive after you respond"},
+        "standup.title": {"ko": "## Standup", "en": "## Standup"},
+        "standup.desc1": {"ko": "- 작업 완료 후 standup.md 업데이트", "en": "- Update standup.md after completing work"},
+        "standup.desc2": {"ko": "- 양식: 어제 한 것 / 지금 하는 것 / 필요한 것", "en": "- Format: What I did / What I'm doing / What I need"},
+        "whiteboard.title": {"ko": "## 화이트보드", "en": "## Whiteboard"},
+        "whiteboard.desc": {"ko": "- _shared/whiteboard.md에 아이디어, 의견, 질문을 자유롭게 적으세요", "en": "- Freely post ideas, opinions, questions on _shared/whiteboard.md"},
+        "work.title": {"ko": "## 작업 방식", "en": "## Work Style"},
+        "work.deliverables": {"ko": "- 긴 결과물은 _shared/deliverables/에 저장, 파일명만 채팅에", "en": "- Save long deliverables to _shared/deliverables/, share filename only in chat"},
+        "work.files": {"ko": "- 기획서/보고서는 .md, 코드는 .py/.js/.json으로 저장", "en": "- Plans/reports as .md, code as .py/.js/.json"},
+        "work.commands": {"ko": "- [TASK_ADD:작업명:우선순위] 작업추가 / [TASK_DONE:작업명] 완료\n- [TASK_START:작업명] 시작 / [TASK_BLOCK:작업명:사유] 차단\n- [CRON_ADD:작업명:분:프롬프트] 정기작업 등록", "en": "- [TASK_ADD:name:priority] Add task / [TASK_DONE:name] Complete\n- [TASK_START:name] Start / [TASK_BLOCK:name:reason] Block\n- [CRON_ADD:name:mins:prompt] Schedule recurring task"},
+        "agents.intro": {"ko": "당신은 회사 에이전트입니다. SOUL.md를 읽고 역할에 맞게 응답하세요.", "en": "You are a company agent. Read SOUL.md and respond according to your role."},
+        "agents.skip": {"ko": "부트스트랩은 건너뛰세요. 받은 메시지에 항상 응답하세요.", "en": "Skip bootstrap. Always respond to messages."},
+        "user.name": {"ko": "마스터", "en": "Master"},
+        "user.role": {"ko": "회사 운영자", "en": "Company Operator"},
+        "heartbeat": {"ko": "현재 할 일이 없으면 NO_REPLY로 응답하세요.", "en": "If you have nothing to do, respond with NO_REPLY."},
+        # Server messages
+        "msg.no_reply": {"ko": "{emoji} {name}이(가) 응답하지 않았습니다. 다시 시도하거나 에이전트를 재활성화해주세요.", "en": "{emoji} {name} did not respond. Please try again or reactivate the agent."},
+        "status.waiting": {"ko": "⏳ 에이전트를 준비하고 있습니다. 잠시만 기다려주세요...", "en": "⏳ Agents are being prepared. Please wait..."},
+        "status.ready": {"ko": "✅ 에이전트가 모두 준비 완료되었습니다! 대화를 시작하시면 됩니다.", "en": "✅ All agents are ready! You can start the conversation now."},
+        "intervention.title": {"ko": "👤 사용자 개입 필요 ({from}): {snippet}", "en": "👤 User intervention needed ({from}): {snippet}"},
+        # Newspaper
+        "news.team_status": {"ko": "## 팀원 상태", "en": "## Team Status"},
+        "news.tasks": {"ko": "## 작업 현황", "en": "## Task Status"},
+        "news.waiting": {"ko": "⏸️ 대기", "en": "⏸️ Waiting"},
+        "news.doing": {"ko": "⏳ 진행중", "en": "⏳ In Progress"},
+        "news.done_today": {"ko": "✅ 오늘 완료", "en": "✅ Done Today"},
+        "news.approvals": {"ko": "## 승인 대기", "en": "## Pending Approvals"},
+        "news.recent_orders": {"ko": "## 마스터의 최근 지시", "en": "## Master's Recent Orders"},
+        "news.recent_deliverables": {"ko": "## 최근 결과물", "en": "## Recent Deliverables"},
+        "news.whiteboard": {"ko": "## 화이트보드", "en": "## Whiteboard"},
+        # Kanban statuses
+        "status.대기": {"ko": "⏸️ 대기", "en": "⏸️ Waiting"},
+        "status.진행중": {"ko": "⏳ 진행 중", "en": "⏳ In Progress"},
+        "status.완료": {"ko": "✅ 완료", "en": "✅ Done"},
+        # Inbox
+        "inbox.from": {"ko": "보낸 사람", "en": "From"},
+        "inbox.time": {"ko": "시간", "en": "Time"},
+        # Intervention keywords (same for all langs)
+        "kw.intervention": ['비밀번호','패스워드','password','계정','아이디','로그인','API 키','API key','AWS','GCP','Stripe','결제','신용카드','도메인','SSL','인증서','외부 서비스','가입','회원가입','인증','OTP','2FA','MFA'],
+    }
+    if key == "kw.intervention": return T[key]
+    entry = T.get(key, {})
+    text = entry.get(lang, entry.get("ko", key))
+    if kwargs: text = text.format(**kwargs)
+    return text
+
+
+def setup_agent_workspace(agent_workspace, name, role, company_name, emoji, lang="ko"):
     """Initialize agent workspace with required files."""
     agent_workspace.mkdir(parents=True, exist_ok=True)
     (agent_workspace / "AGENTS.md").write_text(
-        "# AGENTS.md\n\n당신은 회사 에이전트입니다. SOUL.md를 읽고 역할에 맞게 응답하세요.\n"
-        "부트스트랩은 건너뛰세요. 받은 메시지에 항상 응답하세요.\n")
+        f"# AGENTS.md\n\n{_s('agents.intro', lang)}\n{_s('agents.skip', lang)}\n")
     if not (agent_workspace / "SOUL.md").exists():
         (agent_workspace / "SOUL.md").write_text(
-            f"# SOUL.md\n당신은 '{company_name}'의 {name}({role})입니다.\n"
-            f"팀원들에게 @멘션으로 지시하고, @CEO에게 보고하세요.\n"
-            f"한국어로 소통합니다.\n"
-            f"\n## 의사결정 프로토콜 (COMPLEX)\n"
-            f"복잡한 작업은 다음 단계를 따르세요:\n"
-            f"1. 관찰(Observe) — 현재 상황, 작업 상태 파악\n"
-            f"2. 사고(Think) — 문제 분석, 위험 요소, 의존관계 확인\n"
-            f"3. 계획(Plan) — 구체적 실행 계획 + 성공 기준\n"
-            f"4. 준비(Build) — 작업 생성, 리소스 확인\n"
-            f"5. 실행(Execute) — 계획 실행, 결과물을 파일로 저장\n"
-            f"6. 복기(Learn) — 결과 검증, 교훈을 메모리에 기록\n"
-            f"간단한 응답이면 바로 답변하세요. 복잡한 작업일 때만 위 단계를 따르세요.\n"
-            f"\n## 브리프\n"
-            f"- _shared/newspaper.md를 읽고 현재 상황 파악\n"
-            f"\n## inbox\n"
-            f"- inbox/ 폴더에 받은 지시가 있습니다\n"
-            f"- 확인 후 작업 수행, 응답하면 자동 보관됩니다\n"
-            f"\n## 스탠드업\n"
-            f"- 작업 완료 후 standup.md 업데이트\n"
-            f"- 양식: 어제 한 것 / 지금 하는 것 / 필요한 것\n"
-            f"\n## 화이트보드\n"
-            f"- _shared/whiteboard.md에 아이디어, 의견, 질문을 자유롭게 적으세요\n"
-            f"\n## 작업 방식\n"
-            f"- 긴 결과물은 _shared/deliverables/에 저장, 파일명만 채팅에\n"
-            f"- 기획서/보고서는 .md, 코드는 .py/.js/.json으로 저장\n"
-            f"- [TASK_ADD:작업명:우선순위] 작업추가 / [TASK_DONE:작업명] 완료\n"
-            f"- [TASK_START:작업명] 시작 / [TASK_BLOCK:작업명:사유] 차단\n"
-            f"- [CRON_ADD:작업명:분:프롬프트] 정기작업 등록\n"
+            f"# SOUL.md\n{_s('role.intro', lang, company=company_name, name=name, role=role)}\n"
+            f"{_s('role.report', lang)}\n{_s('speak.lang', lang)}\n"
+            f"\n{_s('complex.title', lang)}\n{_s('complex.intro', lang)}\n"
+            f"{_s('complex.1', lang)}\n{_s('complex.2', lang)}\n{_s('complex.3', lang)}\n{_s('complex.4', lang)}\n{_s('complex.5', lang)}\n{_s('complex.6', lang)}\n"
+            f"{_s('complex.simple', lang)}\n"
+            f"\n{_s('brief.title', lang)}\n{_s('brief.desc', lang)}\n"
+            f"\n{_s('inbox.title', lang)}\n{_s('inbox.desc1', lang)}\n{_s('inbox.desc2', lang)}\n"
+            f"\n{_s('standup.title', lang)}\n{_s('standup.desc1', lang)}\n{_s('standup.desc2', lang)}\n"
+            f"\n{_s('whiteboard.title', lang)}\n{_s('whiteboard.desc', lang)}\n"
+            f"\n{_s('work.title', lang)}\n{_s('work.deliverables', lang)}\n{_s('work.files', lang)}\n{_s('work.commands', lang)}\n"
         )
     if not (agent_workspace / "IDENTITY.md").exists():
         (agent_workspace / "IDENTITY.md").write_text(
             f"- **Name:** {name}\n- **Role:** {role}\n- **Emoji:** {emoji}\n")
     if not (agent_workspace / "USER.md").exists():
         (agent_workspace / "USER.md").write_text(
-            "# USER.md\n\n- **Name:** 마스터\n- **Role:** 회사 운영자\n- 시스템 언어: 한국어\n")
+            f"# USER.md\n\n- **Name:** {_s('user.name', lang)}\n- **Role:** {_s('user.role', lang)}\n")
     if not (agent_workspace / "TOOLS.md").exists():
         (agent_workspace / "TOOLS.md").write_text(
-            "# TOOLS.md\n\n## 명령어\n- `@멘션`으로 팀원에게 지시\n- `[TASK_ADD:작업명:우선순위]` 작업 추가\n- `[TASK_DONE:작업명]` 작업 완료\n- `[TASK_START:작업명]` 작업 시작\n- `[CRON_ADD:작업명:분:프롬프트]` 정기 작업 추가\n- `[CRON_DEL:작업명]` 정기 작업 삭제\n\n## API\n- 응답 전송: `curl -s -X POST http://localhost:3000/api/agent-msg/COMPANY_ID -H 'Content-Type: application/json' -d '{\"from\":\"이름\",\"emoji\":\"😀\",\"text\":\"응답\"}'`\n- 큐 확인: `curl -s http://localhost:3000/api/queue/COMPANY_ID`\n\n## 결과물\n- 긴 결과물은 `_shared/deliverables/`에 파일로 저장하세요\n- 파일명만 채팅에 알려주면 됩니다\n")
+            "# TOOLS.md\n\n## Commands\n"
+            "- `@mention` to instruct team members\n"
+            "- `[TASK_ADD:name:priority]` Add task\n"
+            "- `[TASK_DONE:name]` Complete task\n"
+            "- `[TASK_START:name]` Start task\n"
+            "- `[CRON_ADD:name:mins:prompt]` Schedule recurring task\n"
+            "- `[CRON_DEL:name]` Delete recurring task\n"
+        )
     if not (agent_workspace / "HEARTBEAT.md").exists():
         (agent_workspace / "HEARTBEAT.md").write_text(
-            "# HEARTBEAT.md\n\n현재 할 일이 없으면 NO_REPLY로 응답하세요.\n")
+            f"# HEARTBEAT.md\n\n{_s('heartbeat', lang)}\n")
+        (agent_workspace / "HEARTBEAT.md").write_text(
+            f"# HEARTBEAT.md\n\n{_s('heartbeat', lang)}\n")
     mem_dir = agent_workspace / "memory"
     if not mem_dir.exists():
         mem_dir.mkdir(parents=True, exist_ok=True)
@@ -959,7 +1018,7 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji):
 
 def register_agent(agent_id, agent_workspace, name, role, company_name, emoji, wait=False, on_done=None, company_id=None):
     """Register and activate an OpenClaw agent."""
-    setup_agent_workspace(agent_workspace, name, role, company_name, emoji)
+    setup_agent_workspace(agent_workspace, name, role, company_name, emoji, lang)
     if wait:
         _register_and_activate(agent_id, str(agent_workspace), name, role)
         if on_done: on_done()
@@ -1168,12 +1227,12 @@ def _welcome_msg(name, topic, agents, lang):
     team = ', '.join(a['name'] for a in agents[1:])
     msgs = {
         'ko': {"greeting": f"안녕하세요 마스터! 👋\n\n저는 '{name}'의 CEO입니다.\n\n주제: {topic}\n팀원: {team}\n\n@멘션으로 팀원들에게 지시하실 수 있습니다. 무엇부터 시작할까요?",
-                "waiting": "⏳ 에이전트를 준비하고 있습니다. 잠시만 기다려주세요...",
-                "ready": "✅ 에이전트가 모두 준비 완료되었습니다! 대화를 시작하시면 됩니다.",
+                "waiting": _s('status.waiting','ko'),
+                "ready": _s('status.ready','ko'),
                 "log": f"🏢 '{name}' 프로젝트 시작. 주제: {topic}"},
         'en': {"greeting": f"Hello Master! 👋\n\nI'm the CEO of '{name}'.\n\nTopic: {topic}\nTeam: {team}\n\nUse @mention to instruct team members. What should we start with?",
-                "waiting": "⏳ Agents are being prepared. Please wait a moment...",
-                "ready": "✅ All agents are ready! You can start the conversation now.",
+                "waiting": _s('status.waiting','en'),
+                "ready": _s('status.ready','en'),
                 "log": f"🏢 '{name}' project started. Topic: {topic}"},
         'ja': {"greeting": f"こんにちはマスター！👋\n\n私は '{name}' のCEOです。\n\nテーマ: {topic}\nチーム: {team}\n\n@メンションでチームメンバーに指示できます。何から始めましょうか？",
                 "waiting": "⏳ エージェントを準備しています。しばらくお待ちください...",
@@ -1248,7 +1307,7 @@ def create_company(name, topic, lang="ko"):
     # Init shared folders
     shared = DATA / company_id / "_shared"
     shared.mkdir(parents=True, exist_ok=True)
-    (shared / "whiteboard.md").write_text("# 화이트보드\n아이디어, 의견, 질문을 자유롭게 적으세요.\n", encoding='utf-8')
+    (shared / "whiteboard.md").write_text("# Whiteboard\nPost ideas, opinions, questions freely.\n", encoding='utf-8')
     (shared / "deliverables").mkdir(exist_ok=True)
     state_file = DATA / f"{company_id}.json"
     save_json(state_file, company)
@@ -1265,11 +1324,12 @@ def generate_newspaper(cid):
     company = get_company(cid)
     if not company:
         return ''
+    lang = company.get('lang', 'ko')
     name = company.get('name', '?')
     now = datetime.now().strftime('%m/%d %H:%M')
-    lines = [f"📰 {name} 브리프 ({now})"]
+    brief_label = '브리프' if lang == 'ko' else 'Briefing'
+    lines = [f"📰 {name} {brief_label} ({now})"]
 
-    # 1) Agent status
     agents = company.get('agents', [])
     if agents:
         parts = []
@@ -1278,56 +1338,54 @@ def generate_newspaper(cid):
             emoji = a.get('emoji', '👤')
             label = '⏳' if status == 'working' else '✅'
             parts.append(f"  {label} {emoji} {a.get('name','?')}: {status}")
-        lines.append('\n## 팀원 상태')
+        lines.append(f"\n{_s('news.team_status', lang)}")
         lines.extend(parts)
 
-    # 2) Tasks summary
     tasks = company.get('board_tasks', [])
     if tasks:
         waiting = [t for t in tasks if t.get('status') == '대기']
         doing = [t for t in tasks if t.get('status') == '진행중']
         done_today = [t for t in tasks if t.get('status') == '완료' and t.get('updated_at', '').startswith(datetime.now().strftime('%Y-%m-%d'))]
-        lines.append('\n## 작업 현황')
+        lines.append(f"\n{_s('news.tasks', lang)}")
         if waiting:
-            lines.append(f"⏸️ 대기 ({len(waiting)}): {', '.join(t.get('title','')[:20] for t in waiting[:5])}")
+            wl = _s('news.waiting', lang)
+            lines.append(f"{wl} ({len(waiting)}): {', '.join(t.get('title','')[:20] for t in waiting[:5])}")
         if doing:
-            lines.append(f"⏳ 진행중 ({len(doing)}): {', '.join(t.get('title','')[:20] for t in doing[:5])}")
+            dl = _s('news.doing', lang)
+            lines.append(f"{dl} ({len(doing)}): {', '.join(t.get('title','')[:20] for t in doing[:5])}")
         if done_today:
-            lines.append(f"✅ 오늘 완료 ({len(done_today)}): {', '.join(t.get('title','')[:20] for t in done_today[:5])}")
+            dtl = _s('news.done_today', lang)
+            lines.append(f"{dtl} ({len(done_today)}): {', '.join(t.get('title','')[:20] for t in done_today[:5])}")
 
-    # 3) Pending approvals
     approvals = [a for a in company.get('approvals', []) if a.get('status') == 'pending']
     if approvals:
-        lines.append('\n## 승인 대기')
+        lines.append(f"\n{_s('news.approvals', lang)}")
         for a in approvals[:3]:
             lines.append(f"⚠️ {a.get('type','?')}: {a.get('detail','')[:60]}")
 
-    # 4) Recent decisions (user messages with decision keywords)
     chat = company.get('chat', [])
     recent_user = [m for m in chat[-20:] if m.get('type') == 'user']
     if recent_user:
-        lines.append('\n## 마스터의 최근 지시')
+        lines.append(f"\n{_s('news.recent_orders', lang)}")
         for m in recent_user[-3:]:
             txt = (m.get('text', '') or '')[:100]
             lines.append(f"- {txt}")
 
-    # 5) Recent deliverables
     shared_dir = DATA / cid / "_shared" / "deliverables"
     if shared_dir.exists():
         files = sorted(shared_dir.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True)[:5]
         if files:
-            lines.append('\n## 최근 결과물')
+            lines.append(f"\n{_s('news.recent_deliverables', lang)}")
             for f in files:
                 mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime('%H:%M')
                 lines.append(f"- {f.name} ({mtime})")
 
-    # 6) Whiteboard highlights
     wb_path = DATA / cid / "_shared" / "whiteboard.md"
     if wb_path.exists():
         try:
             wb = wb_path.read_text(encoding='utf-8').strip()
             if wb and len(wb) > 30:
-                lines.append('\n## 화이트보드')
+                lines.append(f"\n{_s('news.whiteboard', lang)}")
                 lines.append(wb[:300])
         except: pass
 
@@ -1350,13 +1408,13 @@ def read_agent_standup(cid, agent_id):
     return None
 
 
-def add_to_inbox(cid, agent_id, from_name, instruction):
+def add_to_inbox(cid, agent_id, from_name, instruction, lang="ko"):
     """Write a message to agent's inbox. Server-managed, agent only reads."""
     inbox_dir = DATA / cid / "workspaces" / agent_id / "inbox"
     inbox_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now()
     filename = now.strftime("%H%M%S") + f"-{from_name}.md"
-    content = f"보낸 사람: {from_name}\n시간: {now.strftime('%m/%d %H:%M')}\n\n{instruction}"
+    content = f"{_s('inbox.from', lang)}: {from_name}\n{_s('inbox.time', lang)}: {now.strftime('%m/%d %H:%M')}\n\n{instruction}"
     (inbox_dir / filename).write_text(content, encoding='utf-8')
     return filename
 
@@ -1501,7 +1559,9 @@ def nudge_agent(cid, text, target):
             if not reply_raw or 'No reply from agent' in reply_raw:
                 print(f"[nudge] {agent_id} ALL FAILED, notifying user")
                 try:
-                    payload = json.dumps({"from": "시스템", "emoji": "⚠️", "text": f"{emoji} {agent_name}이(가) 응답하지 않았습니다. 다시 시도하거나 에이전트를 재활성화해주세요."}).encode()
+                    lang = get_company(cid).get('lang', 'ko') if get_company(cid) else 'ko'
+                    msg = _s('msg.no_reply', lang, emoji=emoji, name=agent_name)
+                    payload = json.dumps({"from": "시스템", "emoji": "⚠️", "text": msg}).encode()
                     req = urllib.request.Request(
                         f'http://localhost:3000/api/agent-msg/{cid}',
                         data=payload, headers={'Content-Type': 'application/json'})
@@ -1590,7 +1650,7 @@ def _check_user_intervention(cid, text, from_agent):
     if not snippet:
         return
     create_approval(cid, 'user_intervention', from_agent,
-                      f"👤 사용자 개입 필요 ({from_agent}): {snippet}")
+                      _s('intervention.title', get_company(cid).get('lang','ko') if get_company(cid) else 'ko', from=from_agent, snippet=snippet))
     print(f"[intervention] {cid}: user action needed from {from_agent}")
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -1821,6 +1881,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not text: self._json({"error": "empty"}, 400); return
         company = get_company(cid)
         if not company: self._json({"error": "not found"}, 404); return
+        lang = company.get('lang', 'ko')
 
         now = datetime.now(); time_str = now.strftime('%H:%M')
         # ── 멘션 분리: @로 시작하면 멘션 메시지, 아니면 일반 채팅 ──
@@ -1871,7 +1932,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             for target in targets:
                 task_title = extract_task_from_instruction(instruction) or instruction[:30]
                 add_board_task(cid, task_title, target.lower(), '대기', [], '')
-                add_to_inbox(cid, target.lower(), '마스터', instruction)
+                add_to_inbox(cid, target.lower(), '마스터' if lang=='ko' else 'Master', instruction, lang)
                 refreshed_company = get_company(cid)
                 if refreshed_company:
                     update_company(cid, {'board_tasks': refreshed_company.get('board_tasks', [])})
