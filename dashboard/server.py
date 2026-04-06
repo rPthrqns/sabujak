@@ -954,6 +954,18 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji):
     if not (agent_workspace / "IDENTITY.md").exists():
         (agent_workspace / "IDENTITY.md").write_text(
             f"- **Name:** {name}\n- **Role:** {role}\n- **Emoji:** {emoji}\n")
+    if not (agent_workspace / "USER.md").exists():
+        (agent_workspace / "USER.md").write_text(
+            "# USER.md\n\n- **Name:** 마스터\n- **Role:** 회사 운영자\n- 시스템 언어: 한국어\n")
+    if not (agent_workspace / "TOOLS.md").exists():
+        (agent_workspace / "TOOLS.md").write_text(
+            "# TOOLS.md\n\n## 사용 가능한 명령어\n- `@멘션`으로 팀원에게 지시\n- `[TASK_ADD:작업명:우선순위]` 작업 추가\n- `[TASK_DONE:작업명]` 작업 완료\n- `[TASK_START:작업명]` 작업 시작\n- `[CRON_ADD:작업명:분:프롬프트]` 정기 작업 추가\n- `[CRON_DEL:작업명]` 정기 작업 삭제\n")
+    if not (agent_workspace / "HEARTBEAT.md").exists():
+        (agent_workspace / "HEARTBEAT.md").write_text(
+            "# HEARTBEAT.md\n\n현재 할 일이 없으면 NO_REPLY로 응답하세요.\n")
+    mem_dir = agent_workspace / "memory"
+    if not mem_dir.exists():
+        mem_dir.mkdir(parents=True, exist_ok=True)
     bootstrap = agent_workspace / "BOOTSTRAP.md"
     if bootstrap.exists():
         bootstrap.unlink()
