@@ -797,6 +797,9 @@ function mdToHtml(text){
   return h;
 }
 
+const MAX_VISIBLE_MESSAGES=100;
+const MAX_APPEND_CHARS=500;
+
 function appendChat(m){
   const el=document.getElementById('chat-messages'),isUser=m.type==='user',isSystem=m.type==='system';
   if(isSystem){
@@ -804,7 +807,7 @@ function appendChat(m){
     el.scrollTop=el.scrollHeight;return;
   }
   const avatar=isUser?'👤':(m.emoji||'👔');
-  const text=m.text||'';
+  const text=(m.text||'').substring(0,MAX_APPEND_CHARS);
   const lines=text.split('\n');
   // 멘션 라인(@로 시작)과 일반 라인 분리 (```블록도 멘션으로 처리)
   const normalLines=[],mentionLines=[];
@@ -893,7 +896,15 @@ function renderPanels(){
     if(filtered.length===0) chatEl.innerHTML+=`<div style="text-align:center;padding:20px;color:var(--dim);font-size:11px">메시지 없음</div>`;
     else filtered.forEach(m=>appendChat(m));
   } else {
-    if(company.chat)company.chat.forEach(m=>appendChat(m));
+    if(company.chat){
+      const all=company.chat;
+      if(all.length>MAX_VISIBLE_MESSAGES){
+        chatEl.innerHTML+=`<div style="text-align:center;padding:6px;font-size:10px;color:var(--dim);background:var(--card);border-radius:6px;margin-bottom:4px">📜 최근 ${MAX_VISIBLE_MESSAGES}개만 표시 (전체 ${all.length}개)</div>`;
+        all.slice(-MAX_VISIBLE_MESSAGES).forEach(m=>appendChat(m));
+      } else {
+        all.forEach(m=>appendChat(m));
+      }
+    }
   }
   lastChatLen=(company.chat||[]).length;
   const allTasks=company.recurring_tasks||[];
@@ -1123,6 +1134,9 @@ function connectSSE(){
     if(agentsChanged)renderCompanyUI(c);
 
     if(canAppendIncrementally&&newMsgs.length>0){
+      // Remove oldest if over limit
+      const chatEl=document.getElementById('chat-messages');
+      while(chatEl.children.length>MAX_VISIBLE_MESSAGES+5) chatEl.removeChild(chatEl.firstChild);
       newMsgs.forEach(m=>appendChat(m));
     }else if(agentsChanged||shouldRenderPanels){
       renderPanels();
