@@ -2088,8 +2088,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             company['approvals'].append(approval_item)
             update_company(cid, {"chat": company["chat"], "activity_log": company["activity_log"], "approvals": company['approvals']})
             if not is_long:
-                sse_broadcast(json.dumps({'type':'chat','msg':chat_msg}))
-            sse_broadcast(json.dumps({'type':'approval','approval':approval_item}))
+                sse_broadcast('chat', {'msg': chat_msg})
+                sse_broadcast('approval', {'approval': approval_item})
             print(f"[master] {from_agent} → @마스터: {master_request[:60]}")
         
         # 에이전트 응답에서 멘션 부분과 일반 부분 분리
