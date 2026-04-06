@@ -73,6 +73,15 @@ def init_db():
                 time TEXT DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_log_company ON activity_log(company_id);
+            CREATE TABLE IF NOT EXISTS documents (
+                id TEXT PRIMARY KEY,
+                company_id TEXT NOT NULL,
+                doc_type TEXT DEFAULT 'standup',
+                agent_id TEXT DEFAULT '',
+                content TEXT DEFAULT '',
+                updated_at TEXT DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_docs_company ON documents(company_id, doc_type);
         """)
         conn.commit()
         conn.close()
@@ -275,6 +284,37 @@ def _save_activity(conn, cid, entries):
             (cid, e.get('agent',''), e.get('text',''), e.get('time','')))
 
 # ─── Migration ───
+
+
+# ─── Document Cache ───
+_doc_cache = {}  # {(cid, doc_type, agent_id): content}
+
+def db_get_doc(cid, doc_type, agent_id=''):
+    key = (cid, doc_type, agent_id)
+    if key in _doc_cache:
+        return _doc_cache[key]
+    with _lock:
+        conn = _conn()
+        row = conn.execute("SELECT content FROM documents WHERE company_id=? AND doc_type=? AND agent_id=?",
+                          (cid, doc_type, agent_id)).fetchone()
+        conn.close()
+    content = row['content'] if row else ''
+    _doc_cache[key] = content
+    return content
+
+def db_save_doc(cid, doc_type, agent_id, content):
+    key = (cid, doc_type, agent_id)
+    _doc_cache[key] = content
+    now = datetime.now().isoformat()
+    with _lock:
+        conn = _conn()
+        conn.execute("INSERT OR REPLACE INTO documents (id, company_id, doc_type, agent_id, content, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (f"{cid}-{doc_type}-{agent_id}", cid, doc_type, agent_id, content, now))
+        conn.commit()
+        conn.close()
+
+def db_clear_doc_cache():
+    _doc_cache.clear()
 
 def migrate_from_json():
     """One-time migration from JSON files to SQLite."""

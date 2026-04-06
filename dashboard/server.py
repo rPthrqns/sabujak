@@ -6,7 +6,7 @@ from pathlib import Path
 from datetime import datetime
 from db import (init_db, migrate_from_json, db_get_company, db_save_company, db_update_company,
                db_get_all_companies, db_delete_company, db_add_chat, db_add_activity,
-               db_get_approvals, db_update_approval, db_get_tasks, db_add_task)
+               db_get_approvals, db_update_approval, db_get_tasks, db_add_task, db_get_doc, db_save_doc, db_clear_doc_cache)
 
 # ─── Constants ───
 PORT = 3000
@@ -1278,9 +1278,18 @@ _AGENT_QUEUES = {}  # {"cid:agent_id": deque of texts}
 _AGENT_BUSY = set()
 _AGENT_STATE_LOCK = threading.Lock()
 _MENTION_COUNTS = {}  # {cid: {from_to: count}}
-_MENTION_LIMIT = 5    # max mentions per chain   # {"cid:agent_id"} currently processing
+_MENTION_LIMIT = 5    # max mentions per chain
+_MAX_CONCURRENT = 2  # max agents thinking at once
+_ACTIVE_SEMAPHORE = threading.Semaphore(_MAX_CONCURRENT)
+
+_newspaper_cache = {}  # {cid: (brief, timestamp)}
 
 def generate_newspaper(cid):
+    """Generate a concise daily brief from current state. Cached for 60s."""
+    now = time.time()
+    cached = _newspaper_cache.get(cid)
+    if cached and now - cached[1] < 60:
+        return cached[0]
     """Generate a concise daily brief from current state."""
     company = get_company(cid)
     if not company:
@@ -1332,76 +1341,56 @@ def generate_newspaper(cid):
             txt = (m.get('text', '') or '')[:100]
             lines.append(f"- {txt}")
 
-    shared_dir = DATA / cid / "_shared" / "deliverables"
-    if shared_dir.exists():
-        files = sorted(shared_dir.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True)[:5]
-        if files:
-            lines.append(f"\n{_s('news.recent_deliverables', lang)}")
-            for f in files:
-                mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime('%H:%M')
-                lines.append(f"- {f.name} ({mtime})")
+    deliv = db_get_doc(cid, 'deliverables', '')
+    if deliv:
+        lines.append(f"\n{_s('news.recent_deliverables', lang)}")
+        for line in deliv.split('\n')[:5]:
+            if line.strip():
+                lines.append(f"- {line.strip()}")
 
-    wb_path = DATA / cid / "_shared" / "whiteboard.md"
-    if wb_path.exists():
-        try:
-            wb = wb_path.read_text(encoding='utf-8').strip()
-            if wb and len(wb) > 30:
-                lines.append(f"\n{_s('news.whiteboard', lang)}")
-                lines.append(wb[:300])
-        except: pass
+    wb = db_get_doc(cid, 'whiteboard', '')
+    if wb and len(wb) > 30:
+        lines.append(f"\n{_s('news.whiteboard', lang)}")
+        lines.append(wb[:300])
 
     brief = '\n'.join(lines)
 
     # Save to file
     brief_dir = DATA / cid / "_shared"
     brief_dir.mkdir(parents=True, exist_ok=True)
-    (brief_dir / "newspaper.md").write_text(brief, encoding='utf-8')
-
+    db_save_doc(cid, 'newspaper', '', brief)
+    _newspaper_cache[cid] = (brief, now)
     return brief
 
 
 def read_agent_standup(cid, agent_id):
-    """Read agent's standup file if it exists."""
-    path = DATA / cid / "workspaces" / agent_id / "standup.md"
-    if path.exists():
-        try: return path.read_text(encoding='utf-8')[:500]
-        except: pass
-    return None
+    """Read agent's standup from DB cache."""
+    content = db_get_doc(cid, 'standup', agent_id)
+    return content[:500] if content else None
 
 
 def add_to_inbox(cid, agent_id, from_name, instruction, lang="ko"):
-    """Write a message to agent's inbox. Server-managed, agent only reads."""
-    inbox_dir = DATA / cid / "workspaces" / agent_id / "inbox"
-    inbox_dir.mkdir(parents=True, exist_ok=True)
+    """Write a message to agent's inbox in DB."""
     now = datetime.now()
-    filename = now.strftime("%H%M%S") + f"-{from_name}.md"
     content = f"{_s('inbox.from', lang)}: {from_name}\n{_s('inbox.time', lang)}: {now.strftime('%m/%d %H:%M')}\n\n{instruction}"
-    (inbox_dir / filename).write_text(content, encoding='utf-8')
-    return filename
+    # Append to existing inbox
+    existing = db_get_doc(cid, 'inbox', agent_id)
+    db_save_doc(cid, 'inbox', agent_id, f"{existing}\n---\n{content}" if existing else content)
+    return True
 
 
 def read_agent_inbox(cid, agent_id, limit=5):
-    """Read latest inbox messages."""
-    inbox_dir = DATA / cid / "workspaces" / agent_id / "inbox"
-    if not inbox_dir.exists(): return None
-    files = sorted(inbox_dir.iterdir(), key=lambda f: f.name)[-limit:]
-    if not files: return None
-    parts = []
-    for f in files:
-        try: parts.append(f.read_text(encoding='utf-8')[:200])
-        except: pass
-    return '\n---\n'.join(parts)
+    """Read inbox from DB cache."""
+    content = db_get_doc(cid, 'inbox', agent_id)
+    if not content: return None
+    # Return last N blocks
+    blocks = content.split('\n---\n')
+    return '\n---\n'.join(blocks[-limit:])
 
 
 def archive_inbox(cid, agent_id):
-    """Move processed inbox items to archive."""
-    inbox_dir = DATA / cid / "workspaces" / agent_id / "inbox"
-    archive_dir = DATA / cid / "workspaces" / agent_id / "inbox-done"
-    if not inbox_dir.exists(): return
-    archive_dir.mkdir(parents=True, exist_ok=True)
-    for f in inbox_dir.iterdir():
-        try: f.rename(archive_dir / f.name)
-        except: pass
+    """Clear agent's inbox after processing."""
+    db_save_doc(cid, 'inbox', agent_id, '')
 
 
 def _clean_stale_locks():
@@ -1471,9 +1460,12 @@ def nudge_agent(cid, text, target):
             if key in _AGENT_BUSY:
                 return
             _AGENT_BUSY.add(key)
-        # Rebuild context for this message
-        company = get_company(cid)
-        newspaper = generate_newspaper(cid)
+        # Global concurrency limit
+        acquired = _ACTIVE_SEMAPHORE.acquire(blocking=True, timeout=60)
+        if not acquired:
+            print(f"[nudge] {aid} dropped: concurrency limit ({_MAX_CONCURRENT})")
+            _AGENT_BUSY.discard(key)
+            return
         standup = read_agent_standup(cid, aid)
         inbox = read_agent_inbox(cid, aid)
         ctx_parts = []
@@ -1667,6 +1659,7 @@ def nudge_agent(cid, text, target):
             print(f"[nudge] {agent_id} error: {e}")
         finally:
             _AGENT_BUSY.discard(key)
+            _ACTIVE_SEMAPHORE.release()
             try:
                 c = get_company(cid)
                 if c:
@@ -2546,7 +2539,6 @@ def _watchdog():
     """30초마다 에이전트 상태 체크, working이 오래 지속되면 active로 복원"""
     import time as _t
     working_since = {}
-    last_refresh = 0
     while True:
         _t.sleep(30)
         try:
@@ -2560,7 +2552,7 @@ def _watchdog():
                     if st == 'working':
                         if key not in working_since:
                             working_since[key] = _t.time()
-                        elif _t.time() - working_since[key] > 60:
+                        elif _t.time() - working_since[key] > 90:
                             print(f"[watchdog] {aid} stuck {int(_t.time()-working_since[key])}s → active")
                             for ag in comp.get('agents', []):
                                 if ag['id'] == aid:
@@ -2569,21 +2561,8 @@ def _watchdog():
                             working_since.pop(key, None)
                     else:
                         working_since.pop(key, None)
-            # Keep sessions alive (every 10 min, max 1 agent at a time)
-            if _t.time() - last_refresh > 600:
-                last_refresh = _t.time()
-                for comp in db_get_all_companies():
-                    for a in comp.get('agents', []):
-                        agent_id = a.get('agent_id', '')
-                        if agent_id and a.get('status') == 'active':
-                            try:
-                                subprocess.run(
-                                    ['openclaw', 'agent', '--agent', agent_id, '--local',
-                                     '-m', 'ping'],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
-                                )
-                                _t.sleep(2)  # Stagger pings to avoid CPU spike
-                            except: pass
+            # Lightweight session keepalive via HTTP (no subprocess)
+            # Sessions stay alive as long as openclaw gateway is running
         except Exception as e:
             print(f"[watchdog] error: {e}")
 threading.Thread(target=_watchdog, daemon=True).start()
