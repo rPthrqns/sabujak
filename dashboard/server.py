@@ -908,7 +908,7 @@ def _s(key, lang, **kwargs):
     """Simple i18n lookup with format kwargs."""
     T = {
         "role.intro": {"ko": "당신은 '{company}'의 {name}({role})입니다.", "en": "You are {name}({role}) of '{company}'."},
-        "role.report": {"ko": "팀원들에게 @멘션으로 직접 지시하세요. '하겠습니다' 같은 인사말은 금지. 받은 요청은 즉시 @멘션으로 팀원에게 분배하세요. 한 응답에 여러 @멘션을 포함해도 됩니다.", "en": "Directly instruct team members with @mention. Never just acknowledge - immediately delegate with @mentions. You can include multiple @mentions in one response."},
+        "role.report": {"ko": "팀원들에게 @멘션으로 지시하고, @CEO에게 보고하세요.", "en": "Instruct team members with @mention and report to @CEO."},
         "speak.lang": {"ko": "한국어로 소통합니다.", "en": "Communicate in English."},
         "complex.title": {"ko": "## 의사결정 프로토콜 (COMPLEX)", "en": "## Decision Protocol (COMPLEX)"},
         "complex.intro": {"ko": "복잡한 작업은 다음 단계를 따르세요:", "en": "For complex tasks, follow these steps:"},
@@ -1615,6 +1615,33 @@ def nudge_agent(cid, text, target):
                             if len(chunks) > 1: time.sleep(1)
                         except Exception as e:
                             print(f"[nudge] post failed: {e}")
+
+                    # CEO acknowledgment detection: if no @mention and no action, nudge again
+                    if aid == 'ceo' and '@' not in clean and len(clean) < 200:
+                        print(f"[nudge] CEO acknowledged without delegation, prompting for plan...")
+                        time.sleep(2)
+                        followup = f"{agent_name}, 당신은 방금 '{text[:50]}'에 대해 계획만 언급하고 팀원에게 지시하지 않았습니다. 지금 바로 구체적인 계획을 세우고 @CMO @CTO에 각자 해야 할 작업을 @멘션으로 지시하세요. COMPLEX 프로토콜을 따르세요."
+                        proc_f = subprocess.Popen(
+                            ['openclaw', 'agent', '--agent', agent_id,
+                             '--session-id', session_id, '--local', '-m', followup],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        stdout_f, stderr_f = proc_f.communicate(timeout=120)
+                        reply_f = stdout_f.decode().strip()
+                        print(f"[nudge] CEO followup reply={len(reply_f)}chars")
+                        if reply_f:
+                            clean_f = '\n'.join(l for l in reply_f.split('\n')
+                                                if not l.startswith('[') and not l.startswith('(agent') and l.strip()).strip()
+                            if clean_f:
+                                for chunk in split_message(clean_f, max_chars=1500):
+                                    try:
+                                        payload = json.dumps({"from": agent_name, "emoji": emoji, "text": chunk}).encode()
+                                        req = urllib.request.Request(
+                                            f'http://localhost:3000/api/agent-msg/{cid}',
+                                            data=payload, headers={'Content-Type': 'application/json'})
+                                        urllib.request.urlopen(req, timeout=5)
+                                    except Exception as e:
+                                        print(f"[nudge] followup post failed: {e}")
+                                        
         except subprocess.TimeoutExpired:
             print(f"[nudge] {agent_id} timeout after {time.time()-nudge_start:.0f}s")
         except Exception as e:
