@@ -249,6 +249,22 @@ def process_task_commands(cid, text, agent_id):
     
     return results
 
+def _post_local(url, data, retries=3):
+    """POST to localhost with retry on connection failure."""
+    import time as _t
+    payload = json.dumps(data).encode()
+    req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
+    for attempt in range(retries):
+        try:
+            urllib.request.urlopen(req, timeout=10)
+            return True
+        except Exception as e:
+            if attempt < retries - 1:
+                _t.sleep(1)
+            else:
+                print(f"[post] failed after {retries} attempts: {e}")
+                return False
+
 def split_message(text, max_chars=1500):
     """Split long messages at natural boundaries."""
     if len(text) <= max_chars:
@@ -1212,7 +1228,7 @@ def execute_task(cid, task):
                     f'http://localhost:3000/api/agent-msg/{cid}',
                     data=payload, headers={'Content-Type': 'application/json'}
                 )
-                urllib.request.urlopen(req, timeout=5)
+                _post_local(req.full_url, json.loads(payload))
             except: pass
         return {"time": datetime.now().strftime('%H:%M'), "text": reply[:200] if reply else "(빈 응답)", "elapsed": elapsed}
     except Exception as e:
@@ -1605,7 +1621,7 @@ def nudge_agent(cid, text, target):
                     req = urllib.request.Request(
                         f'http://localhost:3000/api/agent-msg/{cid}',
                         data=payload, headers={'Content-Type': 'application/json'})
-                    urllib.request.urlopen(req, timeout=5)
+                    _post_local(req.full_url, json.loads(payload))
                 except Exception as e:
                     print(f"[nudge] notify failed: {e}")
                 reply_raw = ''  # Skip processing below
@@ -1638,7 +1654,7 @@ def nudge_agent(cid, text, target):
                             req = urllib.request.Request(
                                 f'http://localhost:3000/api/agent-msg/{cid}',
                                 data=payload, headers={'Content-Type': 'application/json'})
-                            urllib.request.urlopen(req, timeout=5)
+                            _post_local(req.full_url, json.loads(payload))
                             if len(chunks) > 1: time.sleep(1)
                         except Exception as e:
                             print(f"[nudge] post failed: {e}")
@@ -1665,7 +1681,7 @@ def nudge_agent(cid, text, target):
                                         req = urllib.request.Request(
                                             f'http://localhost:3000/api/agent-msg/{cid}',
                                             data=payload, headers={'Content-Type': 'application/json'})
-                                        urllib.request.urlopen(req, timeout=5)
+                                        _post_local(req.full_url, json.loads(payload))
                                     except Exception as e:
                                         print(f"[nudge] followup post failed: {e}")
 
