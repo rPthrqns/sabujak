@@ -975,6 +975,10 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji, lang
     agent_workspace.mkdir(parents=True, exist_ok=True)
     (agent_workspace / "AGENTS.md").write_text(
         f"# AGENTS.md\n\n{_s('agents.intro', lang)}\n{_s('agents.skip', lang)}\n")
+    # SOUL.md에 절대경로 안내 추가
+    whiteboard_path = DATA / cid / "_shared" / "whiteboard.md"
+    deliverables_path = DATA / cid / "_shared" / "deliverables"
+    shared_path = DATA / cid / "_shared"
     if not (agent_workspace / "SOUL.md").exists():
         (agent_workspace / "SOUL.md").write_text(
             f"# SOUL.md\n{_s('role.intro', lang, company=company_name, name=name, role=role)}\n"
@@ -985,8 +989,12 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji, lang
             f"\n{_s('brief.title', lang)}\n{_s('brief.desc', lang)}\n"
             f"\n{_s('inbox.title', lang)}\n{_s('inbox.desc1', lang)}\n{_s('inbox.desc2', lang)}\n"
             f"\n{_s('standup.title', lang)}\n{_s('standup.desc1', lang)}\n{_s('standup.desc2', lang)}\n"
-            f"\n{_s('whiteboard.title', lang)}\n{_s('whiteboard.desc', lang)}\n"
+            f"\n{_s('whiteboard.title', lang)}\n- Path: {whiteboard_path}\n"
             f"\n{_s('work.title', lang)}\n{_s('work.deliverables', lang)}\n{_s('work.files', lang)}\n{_s('work.commands', lang)}\n"
+            f"\n## Paths\n"
+            f"- Shared: {shared_path}\n"
+            f"- Deliverables: {deliverables_path}\n"
+            f"- Whiteboard: {whiteboard_path}\n"
         )
     if not (agent_workspace / "IDENTITY.md").exists():
         (agent_workspace / "IDENTITY.md").write_text(
