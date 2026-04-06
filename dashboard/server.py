@@ -1276,44 +1276,78 @@ def create_company(name, topic, lang="ko"):
 
 # ─── Lightweight Agent Nudge (Empire-style) ───
 
+# Per-agent queue for ordered processing + dedup
+_AGENT_QUEUES = {}  # {"cid:agent_id": deque of texts}
+_AGENT_BUSY = set()   # {"cid:agent_id"} currently processing
+
 def nudge_agent(cid, text, target):
-    """Lightweight nudge: send message, parse stdout reply, save to chat. No locks."""
+    """Queue-based nudge: FIFO order, dedup recent, context-aware, no locks."""
     company = get_company(cid)
     if not company:
         return
-    agent = next((a for a in company.get('agents', []) if a['id'] == target.lower()), None)
+    agent = next((a for a in company.get('agents', [])
+                  if a['id'] == target.lower()), None)
     if not agent:
         agent = company['agents'][0]
     agent_id = agent.get('agent_id', f"{cid}-{agent['id']}")
     agent_name = agent.get('name', target)
     emoji = agent.get('emoji', '👔')
+    aid = agent['id']
 
-    # Update status to working
-    try:
-        c = get_company(cid)
-        for a in c.get('agents', []):
-            if a['id'] == agent['id']:
-                a['status'] = 'working'
-                break
-        update_company(cid, {"agents": c['agents']})
-    except: pass
+    # Build context: recent 3 chat messages
+    chat = company.get('chat', [])
+    recent = []
+    for m in chat[-6:]:
+        if m.get('type') == 'system': continue
+        who = m.get('from', '?')
+        txt = (m.get('text', '') or '')[:150]
+        recent.append(f"[{who}] {txt}")
+    context = '\n'.join(recent) if recent else ''
 
-    # Auto-advance kanban task
-    company = get_company(cid)
-    for t in company.get('board_tasks', []):
-        if t.get('agent_id') == agent['id'] and t.get('status') == '대기':
-            t['status'] = '진행중'
-            save_company(company)
-            update_company(cid, {'board_tasks': company['board_tasks']})
-            break
+    # Build my tasks
+    my_tasks = [t for t in company.get('board_tasks', [])
+                if t.get('agent_id') == aid and t.get('status') in ('대기', '진행중')]
+    task_info = ''
+    if my_tasks:
+        task_info = '\n'.join(f"- [{t.get('status','')}] {t.get('title','')}" for t in my_tasks[:5])
 
-    session_id = f"{agent_id}-turn-{int(time.time())}"
-    nudge_start = time.time()
+    prompt = text
+    if context:
+        prompt = f"=== 최근 대화 ===\n{context}\n\n=== 내 작업 ===\n{task_info}\n\n메시지: {text}" if task_info else f"=== 최근 대화 ===\n{context}\n\n메시지: {text}"
 
-    def _run():
+    # Use persistent session for memory continuity
+    session_id = f"{agent_id}-main"
+
+    # Queue-based processing
+    key = f"{cid}:{aid}"
+
+    def _process():
+        if key in _AGENT_BUSY:
+            return  # Already processing, skip
+        _AGENT_BUSY.add(key)
+        nudge_start = time.time()
         try:
+            # Set working status
+            c = get_company(cid)
+            if c:
+                for a in c.get('agents', []):
+                    if a['id'] == aid:
+                        a['status'] = 'working'
+                        break
+                update_company(cid, {"agents": c['agents']})
+
+            # Auto-advance kanban
+            c = get_company(cid)
+            for t in c.get('board_tasks', []):
+                if t.get('agent_id') == aid and t.get('status') == '대기':
+                    t['status'] = '진행중'
+                    save_company(c)
+                    update_company(cid, {'board_tasks': c['board_tasks']})
+                    break
+
             proc = subprocess.Popen(
-                ['openclaw', 'agent', '--agent', agent_id, '--session-id', session_id, '--local', '-m', text],
+                ['openclaw', 'agent', '--agent', agent_id,
+                 '--session-id', session_id, '--local', '-m', prompt],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             stdout, stderr = proc.communicate(timeout=120)
@@ -1322,47 +1356,44 @@ def nudge_agent(cid, text, target):
             print(f"[nudge] {agent_id} reply={len(reply_raw)}chars rc={proc.returncode} time={elapsed:.1f}s")
 
             if not reply_raw or 'No reply from agent' in reply_raw or proc.returncode != 0:
-                print(f"[nudge] {agent_id} no reply, retrying in 3s...")
-                time.sleep(3)
+                print(f"[nudge] {agent_id} no reply, retrying...")
+                time.sleep(2)
                 proc2 = subprocess.Popen(
-                    ['openclaw', 'agent', '--agent', agent_id, '--session-id', f"{session_id}-retry", '--local', '-m', text],
+                    ['openclaw', 'agent', '--agent', agent_id,
+                     '--session-id', f"{session_id}-retry", '--local', '-m', prompt],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE
                 )
                 stdout2, stderr2 = proc2.communicate(timeout=120)
                 reply_raw = stdout2.decode().strip()
-                print(f"[nudge] {agent_id} retry reply={len(reply_raw)}chars rc={proc2.returncode}")
+                print(f"[nudge] {agent_id} retry reply={len(reply_raw)}chars")
 
             if reply_raw and 'No reply from agent' not in reply_raw:
                 lines = reply_raw.split('\n')
-                clean = '\n'.join(l for l in lines if not l.startswith('[') and not l.startswith('(agent') and l.strip()).strip()
+                clean = '\n'.join(l for l in lines
+                                  if not l.startswith('[') and not l.startswith('(agent') and l.strip()).strip()
                 if clean:
-                    # Save memory
-                    save_agent_memory(cid, agent['id'], clean)
-                    # Process task commands
-                    process_task_commands(cid, clean, agent['id'])
-                    # Estimate cost
+                    save_agent_memory(cid, aid, clean)
+                    process_task_commands(cid, clean, aid)
                     est_tokens = max(len(clean) // 4, 100)
                     est_cost = round(est_tokens * COST_PER_1K_TOKENS / 1000, 6)
-                    update_agent_cost(cid, agent['id'], est_tokens, est_cost)
+                    update_agent_cost(cid, aid, est_tokens, est_cost)
                     # Auto-complete oldest doing task
-                    company = get_company(cid)
-                    if company:
-                        for t in company.get('board_tasks', []):
-                            if t.get('agent_id') == agent['id'] and t.get('status') == '진행중':
+                    c = get_company(cid)
+                    if c:
+                        for t in c.get('board_tasks', []):
+                            if t.get('agent_id') == aid and t.get('status') == '진행중':
                                 t['status'] = '완료'
                                 t['updated_at'] = datetime.now().isoformat()
-                                save_company(company)
-                                update_company(cid, {'board_tasks': company['board_tasks']})
+                                save_company(c)
+                                update_company(cid, {'board_tasks': c['board_tasks']})
                                 break
-                    # Post to chat via internal API
                     chunks = split_message(clean, max_chars=1500)
                     for chunk in chunks:
                         try:
                             payload = json.dumps({"from": agent_name, "emoji": emoji, "text": chunk}).encode()
                             req = urllib.request.Request(
                                 f'http://localhost:3000/api/agent-msg/{cid}',
-                                data=payload, headers={'Content-Type': 'application/json'}
-                            )
+                                data=payload, headers={'Content-Type': 'application/json'})
                             urllib.request.urlopen(req, timeout=5)
                             if len(chunks) > 1: time.sleep(1)
                         except Exception as e:
@@ -1372,16 +1403,35 @@ def nudge_agent(cid, text, target):
         except Exception as e:
             print(f"[nudge] {agent_id} error: {e}")
         finally:
+            _AGENT_BUSY.discard(key)
             try:
                 c = get_company(cid)
-                for a in c.get('agents', []):
-                    if a['id'] == agent['id']:
-                        a['status'] = 'active'
-                        break
-                update_company(cid, {"agents": c['agents']})
+                if c:
+                    for a in c.get('agents', []):
+                        if a['id'] == aid:
+                            a['status'] = 'active'
+                            break
+                    update_company(cid, {"agents": c['agents']})
             except: pass
+            # Process next in queue if any
+            if key in _AGENT_QUEUES and _AGENT_QUEUES[key]:
+                next_text = _AGENT_QUEUES[key].popleft()
+                if not _AGENT_QUEUES[key]:
+                    del _AGENT_QUEUES[key]
+                threading.Thread(target=_process_one, args=(next_text,), daemon=True).start()
 
-    threading.Thread(target=_run, daemon=True).start()
+    def _process_one(t):
+        _process(t)
+
+    if key in _AGENT_BUSY:
+        # Already running, queue it (keep only last 3)
+        if key not in _AGENT_QUEUES:
+            from collections import deque
+            _AGENT_QUEUES[key] = deque(maxlen=3)
+        _AGENT_QUEUES[key].append(text)
+        print(f"[nudge] {agent_id} busy, queued (len={len(_AGENT_QUEUES[key])})")
+    else:
+        threading.Thread(target=_process_one, args=(text,), daemon=True).start()
 
 def _check_user_intervention(cid, text, from_agent):
     """Detect if agent response contains requests needing user action (credentials, accounts, etc)."""
