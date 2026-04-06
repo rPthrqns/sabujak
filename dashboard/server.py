@@ -1996,35 +1996,37 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         emoji = body.get('emoji', '👔')
         if not text or text in ('No reply from agent.', ''): self._json({"ok": False, "reason": "empty/no_reply"}); return
 
-        # @마스터 멘션 감지 → 승인 요청 자동 생성
-        master_mention = re.search(r'@마스터 ?(.*)', text, re.DOTALL)
+        company = get_company(cid)
+        if not company: self._json({"error": "not found"}, 404); return
+        now = datetime.now(); time_str = now.strftime('%H:%M')
+
+        # @마스터 멘션 감지 → 채팅 표시 + 승인 탭에도 추가
+        master_mention = re.search(r'@\uB9C8\uC2A4\uD130 ?(.*)', text, re.DOTALL)
         master_request = ''
         if master_mention:
             master_request = master_mention.group(1).strip()
-            text = re.sub(r'@B9c8C2a4D130 ?', '', text).strip()
-            text = re.sub(r'@B9c8C2a4D130 ?', '', text).strip()
-            # 승인 요청 생성
+            text = re.sub(r'@\uB9C8\uC2A4\uD130 ?', '', text).strip()
+            # 채팅에 @마스터 메시지 표시
+            chat_msg = {"from": from_agent, "emoji": emoji, "text": f"@마스터 {master_request}", "time": time_str, "type": "agent", "mention": True}
+            company["chat"].append(chat_msg)
+            company["activity_log"].append({"time": time_str, "agent": from_agent, "text": f"@마스터 {master_request[:50]}"})
+            # 승인 탭에도 추가
             approval_item = {
                 'id': str(uuid.uuid4())[:8],
                 'from_agent': from_agent,
                 'from_emoji': emoji,
-                'type': '요청',
-                'detail': master_request[:200] if master_request else '승인/확인 요청',
+                'type': '보고/요청',
+                'detail': master_request[:200] if master_request else '보고/요청',
                 'status': 'pending',
-                'time': datetime.now().strftime('%H:%M'),
+                'time': time_str,
                 'created_at': datetime.now().isoformat()
             }
-            approvals = company.get('approvals', [])
-            approvals.append(approval_item)
-            update_company(cid, {'approvals': approvals})
-            print(f"[approval] {from_agent} → @마스터: {master_request[:60]}")
-            # SSE로 승인 알림
+            company['approvals'] = company.get('approvals', [])
+            company['approvals'].append(approval_item)
+            update_company(cid, {"chat": company["chat"], "activity_log": company["activity_log"], "approvals": company['approvals']})
+            _sse_send(json.dumps({'type':'chat','msg':chat_msg}))
             _sse_send(json.dumps({'type':'approval','approval':approval_item}))
-
-        company = get_company(cid)
-        if not company: self._json({"error": "not found"}, 404); return
-
-        now = datetime.now(); time_str = now.strftime('%H:%M')
+            print(f"[master] {from_agent} → @마스터: {master_request[:60]}")
         
         # 에이전트 응답에서 멘션 부분과 일반 부분 분리
         has_mentions = bool(re.search(r'@([A-Za-z0-9]+)', text))
