@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """SQLite database layer for AI Company Hub."""
 import sqlite3, json, os, threading
+from datetime import datetime
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent.parent / "data" / "hub.db"
@@ -130,18 +131,87 @@ def db_save_company(company):
     return company
 
 def db_update_company(cid, updates):
-    company = db_get_company(cid)
-    if company:
+    if not updates:
+        return db_get_company(cid)
+    with _lock:
+        company = db_get_company(cid)
+        if not company:
+            return None
         company.update(updates)
         db_save_company(company)
-    return company
+        return company
 
 def db_get_all_companies():
     with _lock:
         conn = _conn()
-        rows = conn.execute("SELECT id FROM companies ORDER BY created_at DESC").fetchall()
+        company_rows = conn.execute("SELECT * FROM companies ORDER BY created_at DESC").fetchall()
+        if not company_rows:
+            conn.close()
+            return []
+        ids = [row['id'] for row in company_rows]
+        placeholders = ','.join('?' for _ in ids)
+
+        chat_rows = conn.execute(
+            f"SELECT * FROM chat_messages WHERE company_id IN ({placeholders}) ORDER BY company_id, sort_order, id",
+            ids,
+        ).fetchall()
+        task_rows = conn.execute(
+            f"SELECT * FROM board_tasks WHERE company_id IN ({placeholders}) ORDER BY company_id, sort_order, id",
+            ids,
+        ).fetchall()
+        approval_rows = conn.execute(
+            f"SELECT * FROM approvals WHERE company_id IN ({placeholders}) ORDER BY company_id, created_at DESC, id DESC",
+            ids,
+        ).fetchall()
+        activity_rows = conn.execute(
+            f"SELECT * FROM activity_log WHERE company_id IN ({placeholders}) ORDER BY company_id, id DESC",
+            ids,
+        ).fetchall()
         conn.close()
-    return [db_get_company(r['id']) for r in rows]
+
+    chats = {}
+    for r in chat_rows:
+        chats.setdefault(r['company_id'], []).append({
+            'from': r['from_field'], 'emoji': r['emoji'], 'text': r['text'],
+            'time': r['time'], 'type': r['msg_type'], 'mention': bool(r['mention']),
+            'to': r['to_field']
+        })
+
+    tasks = {}
+    for r in task_rows:
+        tasks.setdefault(r['company_id'], []).append({
+            'id': r['id'], 'title': r['title'], 'agent_id': r['agent_id'],
+            'status': r['status'], 'depends_on': json.loads(r['depends_on']),
+            'deadline': r['deadline'], 'created_at': r['created_at'],
+            'updated_at': r['updated_at']
+        })
+
+    approvals = {}
+    for r in approval_rows:
+        approvals.setdefault(r['company_id'], []).append({
+            'id': r['id'], 'from_agent': r['from_agent'], 'from_emoji': r['from_emoji'],
+            'type': r['approval_type'], 'detail': r['detail'], 'status': r['status'],
+            'time': r['time'], 'created_at': r['created_at']
+        })
+
+    activities = {}
+    for r in activity_rows:
+        bucket = activities.setdefault(r['company_id'], [])
+        if len(bucket) < 50:
+            bucket.append({'time': r['time'], 'agent': r['agent'], 'text': r['text']})
+
+    companies = []
+    for row in company_rows:
+        company = dict(row)
+        extra = json.loads(company.pop('data', '{}'))
+        company.update({k: v for k, v in extra.items() if k not in company})
+        cid = company['id']
+        company['chat'] = chats.get(cid, [])
+        company['board_tasks'] = tasks.get(cid, [])
+        company['approvals'] = approvals.get(cid, [])
+        company['activity_log'] = activities.get(cid, [])
+        companies.append(company)
+    return companies
 
 def db_delete_company(cid):
     with _lock:
@@ -278,9 +348,9 @@ def db_add_activity(cid, entry):
         conn.close()
 
 def _save_activity(conn, cid, entries):
-    # Only save new entries, don't DELETE all
+    conn.execute("DELETE FROM activity_log WHERE company_id=?", (cid,))
     for e in entries[-50:]:
-        conn.execute("INSERT OR IGNORE INTO activity_log (company_id, agent, text, time) VALUES (?, ?, ?, ?)",
+        conn.execute("INSERT INTO activity_log (company_id, agent, text, time) VALUES (?, ?, ?, ?)",
             (cid, e.get('agent',''), e.get('text',''), e.get('time','')))
 
 # ─── Migration ───

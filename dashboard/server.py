@@ -1204,7 +1204,7 @@ def _welcome_msg(name, topic, agents, lang):
     return msgs.get(lang, msgs['ko'])
 
 def create_company(name, topic, lang="ko"):
-    companies = load_json(COMPANIES_FILE)
+    companies = db_get_all_companies()
     slug = re.sub(r'[^a-z0-9]', '-', name.lower()).strip('-')
     if not slug: slug = 'company'
     company_id = slug + "-" + datetime.now().strftime('%m%d%H%M')
@@ -1261,6 +1261,7 @@ def create_company(name, topic, lang="ko"):
         ]
     }
     companies.append(company)
+    db_save_company(company)
     save_json(COMPANIES_FILE, companies)
     # Init shared folders
     shared = DATA / company_id / "_shared"
@@ -1286,19 +1287,18 @@ _newspaper_cache = {}  # {cid: (brief, timestamp)}
 
 def generate_newspaper(cid):
     """Generate a concise daily brief from current state. Cached for 60s."""
-    now = time.time()
+    cache_now = time.time()
     cached = _newspaper_cache.get(cid)
-    if cached and now - cached[1] < 60:
+    if cached and cache_now - cached[1] < 60:
         return cached[0]
-    """Generate a concise daily brief from current state."""
     company = get_company(cid)
     if not company:
         return ''
     lang = company.get('lang', 'ko')
     name = company.get('name', '?')
-    now = datetime.now().strftime('%m/%d %H:%M')
+    display_now = datetime.now().strftime('%m/%d %H:%M')
     brief_label = '브리프' if lang == 'ko' else 'Briefing'
-    lines = [f"📰 {name} {brief_label} ({now})"]
+    lines = [f"📰 {name} {brief_label} ({display_now})"]
 
     agents = company.get('agents', [])
     if agents:
@@ -1359,7 +1359,7 @@ def generate_newspaper(cid):
     brief_dir = DATA / cid / "_shared"
     brief_dir.mkdir(parents=True, exist_ok=True)
     db_save_doc(cid, 'newspaper', '', brief)
-    _newspaper_cache[cid] = (brief, now)
+    _newspaper_cache[cid] = (brief, cache_now)
     return brief
 
 
@@ -1650,11 +1650,14 @@ def nudge_agent(cid, text, target):
 
         except subprocess.TimeoutExpired:
             print(f"[nudge] {agent_id} timeout after {time.time()-nudge_start:.0f}s, killing...")
-            try:
-                for p in [proc, proc2, proc3, proc_f]:
-                    try: p.kill(); p.wait(timeout=5)
-                    except: pass
-            except: pass
+            for p in [locals().get('proc'), locals().get('proc2'), locals().get('proc3'), locals().get('proc_f')]:
+                if not p:
+                    continue
+                try:
+                    p.kill()
+                    p.wait(timeout=5)
+                except:
+                    pass
         except Exception as e:
             print(f"[nudge] {agent_id} error: {e}")
         finally:
@@ -1677,8 +1680,10 @@ def nudge_agent(cid, text, target):
 
     if key in _AGENT_BUSY:
         if key not in _AGENT_QUEUES:
-            from collections import deque
-            _AGENT_QUEUES[key] = deque(maxlen=3)
+            _AGENT_QUEUES[key] = []
+        if len(_AGENT_QUEUES[key]) >= 3:
+            dropped = _AGENT_QUEUES[key].pop(0)
+            print(f"[nudge] {agent_id} queue full, dropped oldest: {dropped[:60]}")
         _AGENT_QUEUES[key].append(text)
         print(f"[nudge] {agent_id} busy, queued (len={len(_AGENT_QUEUES[key])})")
     else:
@@ -1734,7 +1739,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path == '/api/sse':
             self._handle_sse()
         elif self.path == '/api/companies':
-            self._json(load_json(COMPANIES_FILE))
+            self._json(db_get_all_companies())
         elif self.path.startswith('/api/company/'):
             cid = self.path.split('/')[-1]
             company = get_company(cid)
@@ -1826,11 +1831,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         with SSE_LOCK:
             SSE_CLIENTS.append(wfile)
         try:
-            companies = load_json(COMPANIES_FILE, [])
+            companies = db_get_all_companies()
             initial = json.dumps(companies, ensure_ascii=False)
             wfile.write(f"event: init\ndata: {initial}\n\n".encode())
             wfile.flush()
-        except: pass
+        except:
+            pass
         try:
             while True:
                 time.sleep(30)
@@ -1839,7 +1845,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     wfile.flush()
                 except:
                     break
-        except:
+        finally:
             with SSE_LOCK:
                 if wfile in SSE_CLIENTS:
                     SSE_CLIENTS.remove(wfile)
@@ -2098,10 +2104,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             normal_text = '\n'.join(normal_parts).strip()
             mention_text = '\n'.join(mention_parts).strip()
         
+        response_msg = None
+
         # 일반 텍스트가 있으면 채팅에 저장
         if normal_text:
-            msg = {"from": from_agent, "emoji": emoji, "text": normal_text, "time": time_str, "type": "agent"}
-            company["chat"].append(msg)
+            response_msg = {"from": from_agent, "emoji": emoji, "text": normal_text, "time": time_str, "type": "agent"}
+            company["chat"].append(response_msg)
             company["activity_log"].append({"time": time_str, "agent": from_agent, "text": normal_text})
         
         # 멘션 텍스트가 있으면 별도 채팅에 저장 (from = 멘션 발신자, mention = true)
@@ -2110,12 +2118,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             for ml in mention_text.split('\n'):
                 ml = ml.strip()
                 if not ml: continue
-                msg = {"from": from_agent, "emoji": emoji, "text": ml, "time": time_str, "type": "agent", "mention": True}
-                company["chat"].append(msg)
+                mention_msg = {"from": from_agent, "emoji": emoji, "text": ml, "time": time_str, "type": "agent", "mention": True}
+                company["chat"].append(mention_msg)
+                if response_msg is None:
+                    response_msg = mention_msg
             company["activity_log"].append({"time": time_str, "agent": from_agent, "text": mention_text})
 
         update_company(cid, {"chat": company["chat"], "activity_log": company["activity_log"]})
-        self._json({"ok": True, "msg": msg})
+        self._json({"ok": True, "msg": response_msg})
 
         # Detect user intervention needed (credentials, external accounts, etc)
         _check_user_intervention(cid, text, from_agent)
