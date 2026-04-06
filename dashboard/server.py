@@ -4,6 +4,9 @@ Enhanced with Goals, Kanban Board, Cost Tracking, Approval Gates, and Task Depen
 import json, os, re, http.server, socketserver, subprocess, threading, time, urllib.request, uuid
 from pathlib import Path
 from datetime import datetime
+from db import (init_db, migrate_from_json, db_get_company, db_save_company, db_update_company,
+               db_get_all_companies, db_delete_company, db_add_chat, db_add_activity,
+               db_get_approvals, db_update_approval, db_get_tasks, db_add_task)
 
 # ─── Constants ───
 PORT = 3000
@@ -417,63 +420,18 @@ def init_companies():
     return load_json(COMPANIES_FILE, [])
 
 def get_company(cid):
-    state_file = DATA / f"{cid}.json"
-    if state_file.exists():
-        try:
-            data = load_json(state_file)
-            if data:
-                return data
-        except:
-            pass
-
-    # Fallback: recover from companies.json if state file is missing or stale
-    companies = load_json(COMPANIES_FILE, [])
-    for company in companies:
-        if company.get('id') == cid:
-            try:
-                save_json(state_file, company)
-            except:
-                pass
-            return company
-    return None
+    return db_get_company(cid)
 
 def save_company(company):
     if not company or 'id' not in company:
         return None
     cid = company['id']
-    lock = _get_company_lock(cid)
-    with lock:
-        state_file = DATA / f"{cid}.json"
-        save_json(state_file, company)
-        companies = load_json(COMPANIES_FILE, [])
-        replaced = False
-        for i, c in enumerate(companies):
-            if c.get("id") == cid:
-                companies[i] = company
-                replaced = True
-                break
-        if not replaced:
-            companies.append(company)
-        save_json(COMPANIES_FILE, companies)
+    db_save_company(company)
     sse_broadcast('company_update', {"id": cid, "company": company})
     return company
 
 def update_company(cid, updates):
-    lock = _get_company_lock(cid)
-    with lock:
-        state_file = DATA / f"{cid}.json"
-        company = get_company(cid)
-        if company:
-            company.update(updates)
-            save_json(state_file, company)
-            companies = load_json(COMPANIES_FILE)
-            for i, c in enumerate(companies):
-                if c["id"] == cid:
-                    companies[i] = company
-                    break
-            save_json(COMPANIES_FILE, companies)
-    sse_broadcast('company_update', {"id": cid, "company": company})
-    return company
+    return db_update_company(cid, updates)
 
 # ─── Goal System ───
 
@@ -2569,6 +2527,8 @@ def ensure_agents_registered():
                 agent['status'] = 'active'
                 save_company(company)
 
+init_db()
+migrate_from_json()
 init_companies()
 threading.Thread(target=ensure_agents_registered, daemon=True).start()
 restore_running_tasks()
