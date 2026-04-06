@@ -908,7 +908,7 @@ def _s(key, lang, **kwargs):
     """Simple i18n lookup with format kwargs."""
     T = {
         "role.intro": {"ko": "당신은 '{company}'의 {name}({role})입니다.", "en": "You are {name}({role}) of '{company}'."},
-        "role.report": {"ko": "팀원들에게 @멘션으로 지시하고, @CEO에게 보고하세요.", "en": "Instruct team members with @mention and report to @CEO."},
+        "role.report": {"ko": "팀원들에게 @멘션으로 지시하고, @CEO에게 보고하세요. 마스터의 확인/승인/정보 제공이 필요하면 @마스터 멘션으로 요청하세요.", "en": "Instruct team members with @mention and report to @CEO. When you need master's confirmation/approval/info, use @마스터 mention."},
         "speak.lang": {"ko": "한국어로 소통합니다.", "en": "Communicate in English."},
         "complex.title": {"ko": "## 의사결정 프로토콜 (COMPLEX)", "en": "## Decision Protocol (COMPLEX)"},
         "complex.intro": {"ko": "복잡한 작업은 다음 단계를 따르세요:", "en": "For complex tasks, follow these steps:"},
