@@ -1445,8 +1445,10 @@ def archive_inbox(cid, agent_id):
 
 def nudge_agent(cid, text, target):
     """Queue-based nudge: FIFO order, dedup recent, context-aware, no locks."""
+    print(f"[nudge] called: cid={cid} target={target} text={text[:50]}")
     company = get_company(cid)
     if not company:
+        print(f"[nudge] company not found: {cid}")
         return
     agent = next((a for a in company.get('agents', [])
                   if a['id'] == target.lower()), None)
@@ -1482,6 +1484,7 @@ def nudge_agent(cid, text, target):
     key = f"{cid}:{aid}"
 
     def _process(msg):
+        nonlocal session_id
         if key in _AGENT_BUSY:
             return
         _AGENT_BUSY.add(key)
@@ -1525,8 +1528,9 @@ def nudge_agent(cid, text, target):
             stdout, stderr = proc.communicate(timeout=120)
             elapsed = time.time() - nudge_start
             reply_raw = stdout.decode().strip()
-            print(f"[nudge] {agent_id} reply={len(reply_raw)}chars rc={proc.returncode} time={elapsed:.1f}s")
+            print(f"[nudge] {agent_id} reply={len(reply_raw)}chars rc={proc.returncode} time={elapsed:.1f}s raw={reply_raw[:100]}")
 
+            retry_ok = True  # Assume OK unless retry needed
             if not reply_raw or 'No reply from agent' in reply_raw or proc.returncode != 0:
                 print(f"[nudge] {agent_id} no reply, retrying...")
                 time.sleep(2)
@@ -1537,10 +1541,11 @@ def nudge_agent(cid, text, target):
                 )
                 stdout2, stderr2 = proc2.communicate(timeout=120)
                 reply_raw = stdout2.decode().strip()
-                print(f"[nudge] {agent_id} retry reply={len(reply_raw)}chars")
+                retry_ok = proc2.returncode == 0
+                print(f"[nudge] {agent_id} retry reply={len(reply_raw)}chars rc={proc2.returncode}")
 
-            # 3rd attempt: session reset + one more try
-            if not reply_raw or 'No reply from agent' in reply_raw or proc2.returncode != 0:
+            # 3rd attempt: session reset
+            if not reply_raw or 'No reply from agent' in reply_raw or not retry_ok:
                 print(f"[nudge] {agent_id} 2nd attempt failed, resetting session...")
                 time.sleep(5)
                 new_session = f"{agent_id}-fresh-{int(time.time())}"
@@ -1941,6 +1946,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 threading.Thread(target=nudge_agent, args=(cid, instruction, target), daemon=True).start()
         elif not is_mention_msg:
             # 일반 채팅 → CEO가 응답
+            print(f"[chat] dispatching to CEO: {text[:50]}")
             threading.Thread(target=nudge_agent, args=(cid, text, 'CEO'), daemon=True).start()
 
     # ─── Agent Message Handler ───
