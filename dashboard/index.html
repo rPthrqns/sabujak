@@ -798,7 +798,6 @@ function mdToHtml(text){
 }
 
 const MAX_VISIBLE_MESSAGES=100;
-const MAX_APPEND_CHARS=500;
 
 function appendChat(m){
   const el=document.getElementById('chat-messages'),isUser=m.type==='user',isSystem=m.type==='system';
@@ -807,7 +806,7 @@ function appendChat(m){
     el.scrollTop=el.scrollHeight;return;
   }
   const avatar=isUser?'👤':(m.emoji||'👔');
-  const text=(m.text||'').substring(0,MAX_APPEND_CHARS);
+  const text=m.text||'';
   const lines=text.split('\n');
   // 멘션 라인(@로 시작)과 일반 라인 분리 (```블록도 멘션으로 처리)
   const normalLines=[],mentionLines=[];
