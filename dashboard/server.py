@@ -1510,6 +1510,35 @@ def nudge_agent(cid, text, target):
                 reply_raw = stdout2.decode().strip()
                 print(f"[nudge] {agent_id} retry reply={len(reply_raw)}chars")
 
+            # 3rd attempt: session reset + one more try
+            if not reply_raw or 'No reply from agent' in reply_raw or proc2.returncode != 0:
+                print(f"[nudge] {agent_id} 2nd attempt failed, resetting session...")
+                time.sleep(5)
+                new_session = f"{agent_id}-fresh-{int(time.time())}"
+                proc3 = subprocess.Popen(
+                    ['openclaw', 'agent', '--agent', agent_id,
+                     '--session-id', new_session, '--local', '-m', prompt],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+                stdout3, stderr3 = proc3.communicate(timeout=120)
+                reply_raw = stdout3.decode().strip()
+                print(f"[nudge] {agent_id} 3rd attempt reply={len(reply_raw)}chars")
+                if reply_raw and 'No reply from agent' not in reply_raw and proc3.returncode == 0:
+                    session_id = new_session  # Use new session going forward
+
+            # All attempts failed — notify user
+            if not reply_raw or 'No reply from agent' in reply_raw:
+                print(f"[nudge] {agent_id} ALL FAILED, notifying user")
+                try:
+                    payload = json.dumps({"from": "시스템", "emoji": "⚠️", "text": f"{emoji} {agent_name}이(가) 응답하지 않았습니다. 다시 시도하거나 에이전트를 재활성화해주세요."}).encode()
+                    req = urllib.request.Request(
+                        f'http://localhost:3000/api/agent-msg/{cid}',
+                        data=payload, headers={'Content-Type': 'application/json'})
+                    urllib.request.urlopen(req, timeout=5)
+                except Exception as e:
+                    print(f"[nudge] notify failed: {e}")
+                reply_raw = ''  # Skip processing below
+
             if reply_raw and 'No reply from agent' not in reply_raw:
                 lines = reply_raw.split('\n')
                 clean = '\n'.join(l for l in lines
