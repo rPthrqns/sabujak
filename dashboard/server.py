@@ -1016,7 +1016,7 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji, lang
     if bootstrap.exists():
         bootstrap.unlink()
 
-def register_agent(agent_id, agent_workspace, name, role, company_name, emoji, wait=False, on_done=None, company_id=None):
+def register_agent(agent_id, agent_workspace, name, role, company_name, emoji, lang='ko', wait=False, on_done=None, company_id=None):
     """Register and activate an OpenClaw agent."""
     setup_agent_workspace(agent_workspace, name, role, company_name, emoji, lang)
     if wait:
@@ -1279,7 +1279,7 @@ def create_company(name, topic, lang="ko"):
                         update_company(cid, {"chat": c['chat'], "activity_log": c['activity_log']})
             return _done
         register_agent(agent_id, agent_workspace, agent_name, agent_role, name, agent_emoji,
-                       wait=False, on_done=make_done_callback(company_id, aid, len(org), lang))
+                       lang=lang, wait=False, on_done=make_done_callback(company_id, aid, len(org), lang))
         agents.append({
             "id": aid, "agent_id": agent_id, "name": agent_name, "emoji": agent_emoji,
             "role": agent_role, "status": "registering",
@@ -2107,7 +2107,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         aid = re.sub(r'[^a-z0-9]', '-', name.lower())
         agent_id = f"{cid}-{aid}"
         agent_workspace = DATA / cid / "workspaces" / aid
-        register_agent(agent_id, agent_workspace, name, role, company.get('name',''), emoji, wait=True)
+        register_agent(agent_id, agent_workspace, name, role, company.get('name',''), emoji, lang=company.get('lang','ko'), wait=True)
         agent = {
             "id": aid, "agent_id": agent_id, "name": name, "emoji": emoji,
             "role": role, "status": "active",
@@ -2370,6 +2370,7 @@ def ensure_agents_registered():
                     return _done
                 register_agent(agent_id, ws, agent['name'], agent['role'],
                                company.get('name', ''), agent.get('emoji', '🤖'),
+                               lang=company.get('lang','ko'),
                                wait=False, on_done=make_done(cid, agent['id']), company_id=cid)
             elif agent.get('status') in ('registering', 'working'):
                 agent['status'] = 'active'
