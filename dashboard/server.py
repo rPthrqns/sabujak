@@ -393,7 +393,10 @@ def save_company(company):
     return company
 
 def update_company(cid, updates):
-    return db_update_company(cid, updates)
+    company = db_update_company(cid, updates)
+    if company:
+        sse_broadcast('company_update', {"id": cid, "company": company})
+    return company
 
 # ─── Goal System ───
 
@@ -1278,12 +1281,37 @@ def create_company(name, topic, lang="ko"):
 _AGENT_QUEUES = {}  # {"cid:agent_id": deque of texts}
 _AGENT_BUSY = set()
 _AGENT_STATE_LOCK = threading.Lock()
-_MENTION_COUNTS = {}  # {cid: {from_to: count}}
+_MENTION_COUNTS = {}  # {cid: {from_to: {'count': int, 'ts': float}}}
 _MENTION_LIMIT = 5    # max mentions per chain
+_MENTION_TTL = 1800   # seconds
 _MAX_CONCURRENT = 2  # max agents thinking at once
 _ACTIVE_SEMAPHORE = threading.Semaphore(_MAX_CONCURRENT)
 
 _newspaper_cache = {}  # {cid: (brief, timestamp)}
+
+
+def _clean_mention_counts(now_ts=None):
+    now_ts = now_ts or time.time()
+    dead_cids = []
+    for cid, chains in list(_MENTION_COUNTS.items()):
+        dead = [k for k, v in chains.items() if now_ts - v.get('ts', 0) > _MENTION_TTL]
+        for k in dead:
+            chains.pop(k, None)
+        if not chains:
+            dead_cids.append(cid)
+    for cid in dead_cids:
+        _MENTION_COUNTS.pop(cid, None)
+
+
+def _bump_mention_chain(cid, chain):
+    now_ts = time.time()
+    _clean_mention_counts(now_ts)
+    bucket = _MENTION_COUNTS.setdefault(cid, {})
+    state = bucket.get(chain, {'count': 0, 'ts': now_ts})
+    state['count'] += 1
+    state['ts'] = now_ts
+    bucket[chain] = state
+    return state['count']
 
 def generate_newspaper(cid):
     """Generate a concise daily brief from current state. Cached for 60s."""
@@ -1617,11 +1645,10 @@ def nudge_agent(cid, text, target):
                     has_agent_mention = bool(re.search(r'@(CMO|CTO|CEO|CFO|COO)', clean, re.IGNORECASE))
                     # Rate limit mentions to prevent ping-pong loops
                     if has_agent_mention:
-                        _mc = _MENTION_COUNTS.setdefault(cid, {})
                         chain = f"{aid}->{','.join(re.findall(r'@(\w+)', clean, re.IGNORECASE))}"
-                        _mc[chain] = _mc.get(chain, 0) + 1
-                        if _mc[chain] > _MENTION_LIMIT:
-                            print(f"[nudge] mention rate limit hit: {chain} ({_mc[chain]})")
+                        mention_count = _bump_mention_chain(cid, chain)
+                        if mention_count > _MENTION_LIMIT:
+                            print(f"[nudge] mention rate limit hit: {chain} ({mention_count})")
                             has_agent_mention = False
                     if aid == 'ceo' and not has_agent_mention and len(clean) < 300:
                         print(f"[nudge] CEO acknowledged without delegation, prompting for plan...")
@@ -1684,6 +1711,25 @@ def nudge_agent(cid, text, target):
         if len(_AGENT_QUEUES[key]) >= 3:
             dropped = _AGENT_QUEUES[key].pop(0)
             print(f"[nudge] {agent_id} queue full, dropped oldest: {dropped[:60]}")
+            try:
+                company_now = get_company(cid)
+                if company_now:
+                    warn_msg = {
+                        "from": "시스템",
+                        "emoji": "⚠️",
+                        "text": f"{emoji} {agent_name} 대기열이 가득 차 가장 오래된 요청 1개를 제거했습니다.",
+                        "time": datetime.now().strftime('%H:%M'),
+                        "type": "system"
+                    }
+                    company_now.setdefault('chat', []).append(warn_msg)
+                    company_now.setdefault('activity_log', []).append({
+                        "time": warn_msg['time'],
+                        "agent": "시스템",
+                        "text": f"{agent_name} queue overflow: oldest request dropped"
+                    })
+                    update_company(cid, {"chat": company_now['chat'], "activity_log": company_now['activity_log']})
+            except Exception as e:
+                print(f"[nudge] queue overflow notify failed: {e}")
         _AGENT_QUEUES[key].append(text)
         print(f"[nudge] {agent_id} busy, queued (len={len(_AGENT_QUEUES[key])})")
     else:
