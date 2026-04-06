@@ -12,8 +12,6 @@ DATA = BASE / "data"
 COMPANIES_FILE = DATA / "companies.json"
 SSE_CLIENTS = []
 SSE_LOCK = threading.Lock()
-PROCESSORS = {}
-PROCESSORS_LOCK = threading.Lock()
 AGENT_LOCK = threading.Lock()
 _running_task_threads = set()
 
@@ -603,7 +601,7 @@ def check_and_unlock_dependencies(cid, completed_task_id):
                             f"작업을 진행해주세요."
                         )
                         threading.Thread(
-                            target=trigger_processor,
+                            target=nudge_agent,
                             args=(cid, notify_text, t['agent_id']),
                             daemon=True
                         ).start()
@@ -954,11 +952,17 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji):
             f"# SOUL.md\n당신은 '{company_name}'의 {name}({role})입니다.\n"
             f"팀원들에게 @멘션으로 지시하고, @CEO에게 보고하세요.\n"
             f"한국어로 소통합니다.\n"
+            f"\n## 작업 방식\n"
+            f"- 마스터의 요청이나 @멘션을 받으면 작업을 수행하세요\n"
+            f"- 긴 결과물(코드, 보고서, 분석 등)은 deliverables/ 폴더에 파일로 저장한 뒤 파일명만 알려주세요\n"
+            f"  예: '@CEO deliverables/report.md 작성 완료했습니다'\n"
+            f"- 결과물은 _shared/deliverables/에 저장하면 팀 전체가 공유합니다\n"
             f"\n## 정기작업 관리\n"
             f"- 정기적으로 확인해야 할 업무가 있다면 [CRON_ADD:작업명:분단위:프롬프트]로 등록하세요\n"
-            f"  예: [CRON_ADD:트래픽체크:60:현재 트래픽과 이상 징후를 보고하세요]\n"
             f"- 불필요한 정기작업은 [CRON_DEL:작업명]으로 삭제하세요\n"
-            f"- 자신의 업무 범위 내에서 자발적으로 정기작업을 등록해도 됩니다\n")
+            f"\n## 응답 전송\n"
+            f"- 작업 완료 후 반드시 아래 curl로 응답을 전송하세요:\n"
+            f"  curl -s -X POST http://localhost:3000/api/agent-msg/{{COMPANY_ID}} -H 'Content-Type: application/json' -d '{{\"from\":\"{name}\",\"emoji\":\"{emoji}\",\"text\":\"응답 내용\"}}'\n")
     if not (agent_workspace / "IDENTITY.md").exists():
         (agent_workspace / "IDENTITY.md").write_text(
             f"- **Name:** {name}\n- **Role:** {role}\n- **Emoji:** {emoji}\n")
@@ -967,7 +971,7 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji):
             "# USER.md\n\n- **Name:** 마스터\n- **Role:** 회사 운영자\n- 시스템 언어: 한국어\n")
     if not (agent_workspace / "TOOLS.md").exists():
         (agent_workspace / "TOOLS.md").write_text(
-            "# TOOLS.md\n\n## 사용 가능한 명령어\n- `@멘션`으로 팀원에게 지시\n- `[TASK_ADD:작업명:우선순위]` 작업 추가\n- `[TASK_DONE:작업명]` 작업 완료\n- `[TASK_START:작업명]` 작업 시작\n- `[CRON_ADD:작업명:분:프롬프트]` 정기 작업 추가\n- `[CRON_DEL:작업명]` 정기 작업 삭제\n")
+            "# TOOLS.md\n\n## 명령어\n- `@멘션`으로 팀원에게 지시\n- `[TASK_ADD:작업명:우선순위]` 작업 추가\n- `[TASK_DONE:작업명]` 작업 완료\n- `[TASK_START:작업명]` 작업 시작\n- `[CRON_ADD:작업명:분:프롬프트]` 정기 작업 추가\n- `[CRON_DEL:작업명]` 정기 작업 삭제\n\n## API\n- 응답 전송: `curl -s -X POST http://localhost:3000/api/agent-msg/COMPANY_ID -H 'Content-Type: application/json' -d '{\"from\":\"이름\",\"emoji\":\"😀\",\"text\":\"응답\"}'`\n- 큐 확인: `curl -s http://localhost:3000/api/queue/COMPANY_ID`\n\n## 결과물\n- 긴 결과물은 `_shared/deliverables/`에 파일로 저장하세요\n- 파일명만 채팅에 알려주면 됩니다\n")
     if not (agent_workspace / "HEARTBEAT.md").exists():
         (agent_workspace / "HEARTBEAT.md").write_text(
             "# HEARTBEAT.md\n\n현재 할 일이 없으면 NO_REPLY로 응답하세요.\n")
@@ -1270,272 +1274,67 @@ def create_company(name, topic, lang="ko"):
     save_json(state_file, company)
     return company
 
-# ─── Trigger Processor (Agent Execution) ───
+# ─── Lightweight Agent Nudge (Empire-style) ───
 
-def trigger_processor(cid, text, target):
+def nudge_agent(cid, text, target):
+    """Lightweight: write to queue and nudge agent to self-process."""
     company = get_company(cid)
     if not company:
         return
     agent = next((a for a in company.get('agents', []) if a['id'] == target.lower()), None)
     if not agent:
         agent = company['agents'][0]
-
     agent_id = agent.get('agent_id', f"{cid}-{agent['id']}")
-    emoji = agent.get('emoji', '👔')
-    company_name = company.get('name', '')
-    topic = company.get('topic', '')
+    agent_name = agent.get('name', target)
 
-    agent_workspace = DATA / cid / "workspaces" / agent['id']
-    company_workspace = DATA / cid / "_shared"
-    company_workspace.mkdir(parents=True, exist_ok=True)
-    if not agent_workspace.exists():
-        register_agent(agent_id, agent_workspace, agent['name'], agent['role'], company_name, emoji)
-        time.sleep(3)
-    # 결과물 폴더 보장
-    (agent_workspace / "deliverables").mkdir(parents=True, exist_ok=True)
+    # Update status to working
+    try:
+        c = get_company(cid)
+        for a in c.get('agents', []):
+            if a['id'] == agent['id']:
+                a['status'] = 'working'
+                break
+        update_company(cid, {"agents": c['agents']})
+    except: pass
 
-    available_agents = ", ".join([f"@{a['id'].upper()}" for a in company.get('agents', []) if a['id'] != agent['id']])
-    is_ceo = agent['id'] == 'ceo'
-
-    # ─── 파일 기반 컨텍스트 (Claw-Empire 방식) ───
-    # 대신 워크스페이스 파일을 읽어서 컨텍스트 구성
-    file_context_parts = []
-    
-    # 1) 공유 deliverables/ 파일 목록 + 내용 (최대 3개)
-    shared_dir = company_workspace / "deliverables"
-    shared_dir.mkdir(parents=True, exist_ok=True)
-    del_dir = shared_dir
-    if del_dir.exists():
-        files = sorted(del_dir.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True)
-        file_list = [f.name for f in files if f.is_file()]
-        if file_list:
-            file_context_parts.append(f"[결과물 파일: {', '.join(file_list)}]")
-            # 최근 파일 3개 내용 읽기 (각 500자)
-            for f in files[:3]:
-                if f.is_file():
-                    try:
-                        content = f.read_text(encoding='utf-8')[:500]
-                        file_context_parts.append(f"--- {f.name} ---\n{content}")
-                    except: pass
-    
-    # 2) 최근 대화는 짧게만 (최근 3개, 각 100자)
-    chat_history = company.get('chat', [])
-    recent = [m for m in chat_history[-3:] if m.get('type') != 'system']
-    for m in recent:
-        sender = m.get('from', '?')
-        msg_text = (m.get('text', '') or '')[:100]
-        if m.get('type') == 'user': file_context_parts.append(f"[마스터] {msg_text}")
-        else: file_context_parts.append(f"[{sender}] {msg_text}")
-    
-    # 3) 총 2000자 제한
-    context_str = '\n'.join(file_context_parts)
-    if len(context_str) > 2000:
-        context_str = context_str[-2000:]
-    
-    # 4) CEO 전용: 대기열 + 정기작업 상태
-    status_context = ''
-    # 4) CEO: 대기열 + 정기작업 상태
-    status_context = ''
-    if is_ceo:
-        company = get_company(cid)
-        tasks = company.get('board_tasks', [])
-        if tasks:
-            waiting = [t for t in tasks if t.get('status') == '대기']
-            doing = [t for t in tasks if t.get('status') == '진행중']
-            done = [t for t in tasks if t.get('status') == '완료']
-            status_parts = ['[대기열 현황]']
-            if waiting: status_parts.append(f"  ⏸️ 대기: {', '.join(t['title'][:20] for t in waiting)}")
-            if doing: status_parts.append(f"  ⏳ 진행: {', '.join(t['title'][:20] for t in doing)}")
-            status_parts.append(f"  ✅ 완료: {len(done)}건")
-            status_context = '\n'.join(status_parts)
-            recurring = company.get('recurring_tasks', [])
-            if recurring:
-                active_r = [r for r in recurring if r.get('status') == 'running']
-                if active_r:
-                    status_context += '\n[정기작업] ' + ', '.join(r.get('title','')[:20] for r in active_r)
-
-    # 5) 대화 20개 초과 시 백그라운드 자동 요약 (파일 요약도 함께)
-    if len(chat_history) > SUMMARY_THRESHOLD:
-        threading.Thread(target=auto_summarize, args=(cid,), daemon=True).start()
-    
-    # 5) 테스크 컨텍스트
-    task_context = ''
-    board_tasks = company.get('board_tasks', [])
-    my_tasks = [t for t in board_tasks if t.get('agent_id') == agent['id']]
-    if my_tasks:
-        task_lines = []
-        for t in my_tasks:
-            status = t.get('status', 'todo')
-            task_lines.append(f"- [{status}] {t.get('title','')} (우선순위: {t.get('priority','보통')})")
-            if t.get('description'):
-                task_lines.append(f"  설명: {t['description'][:100]}")
-        task_context = f"\n=== 내 작업 목록 ===\n" + '\n'.join(task_lines) + '\n'
-
-    # 메모리 로드
-    memory_context = load_agent_memory(cid, agent['id'])
-
-    if is_ceo:
-        prompt = f"""당신은 '{company_name}'의 {agent['name']}({agent['role']})입니다. 주제: {topic}
-
-팀원: {available_agents}
-공유 결과물 폴더: {company_workspace}/deliverables/
-워크스페이스: {agent_workspace}
-
-⚠️ 당신은 총괄입니다. 직접 작업을 수행하지 마세요. 마스터의 요청을 받으면 반드시 @멘션으로 팀원에게 작업을 분배하세요. 형식: @CMO 구체적인 지시 내용 (한 줄에 하나씩)
-
-{status_context}
-
-{COMPLEX_PROMPT}
-
-{f"=== 에이전트 메모리 ===\n{memory_context}\n" if memory_context else ""}{task_context}{f"=== 현재 상황 (파일+최근 대화) ===\n{context_str}\n" if context_str else ""}
-메시지: "{text}"
-답변:"""
-    else:
-        prompt = f"""당신은 '{company_name}'의 {agent['name']}({agent['role']})입니다. 주제: {topic}
-
-팀원: {available_agents}
-공유 결과물 폴더: {company_workspace}/deliverables/
-워크스페이스: {agent_workspace}
-
-@CEO에게 보고하세요. 팀원에게도 @멘션으로 작업을 요청할 수 있습니다. 받은 지시에 대해 구체적으로 작업을 수행하고, 결과물을 _shared/deliverables/에 저장하세요.
-
-{COMPLEX_PROMPT}
-
-{f"=== 에이전트 메모리 ===\n{memory_context}\n" if memory_context else ""}{task_context}{f"=== 현재 상황 (파일+최근 대화) ===\n{context_str}\n" if context_str else ""}
-메시지: "{text}"
-답변:"""
-
-    lock_key = f"{cid}:{agent['id']}"
-    with PROCESSORS_LOCK:
-        if lock_key in PROCESSORS:
-            print(f"[SKIP] {lock_key} busy")
-            return
-        PROCESSORS[lock_key] = True
-
-    def _update_agent_status(status):
-        try:
-            c = get_company(cid)
-            if c:
-                for a in c.get('agents', []):
-                    if a['id'] == agent['id']:
-                        a['status'] = status
-                        break
-                update_company(cid, {"agents": c['agents']})
-        except: pass
-
-    def _done():
-        with PROCESSORS_LOCK:
-            PROCESSORS.pop(lock_key, None)
-        _update_agent_status('active')
-
-    # 세션 ID: 에이전트별 고유 + 타임스탬프로 항상 새 세션 보장
-    session_id = f"{agent_id}-turn-{int(time.time())}"
-
-    _update_agent_status('working')
-    # 내 칸반 대기 작업을 진행중으로 변경
+    # Auto-advance kanban task
     company = get_company(cid)
-    updated = False
     for t in company.get('board_tasks', []):
         if t.get('agent_id') == agent['id'] and t.get('status') == '대기':
             t['status'] = '진행중'
-            updated = True
-            print(f"[kanban] '{t.get('title','')[:30]}' 대기→진행 ({agent_id})")
-    if updated:
-        save_company(company)
-        update_company(cid, {'board_tasks': company['board_tasks']})
-    
-    try:
-        proc = subprocess.Popen(
-            ['openclaw', 'agent', '--agent', agent_id, '--session-id', session_id, '--local', '-m', prompt],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
+            save_company(company)
+            update_company(cid, {'board_tasks': company['board_tasks']})
+            break
+
+    # Nudge: short message, agent reads queue and processes itself
+    nudge = f"큐에 새 메시지가 있습니다. 확인하고 응답하세요: {text[:200]}"
+    session_id = f"{agent_id}-turn-{int(time.time())}"
+
+    def _run():
         try:
-            stdout, stderr = proc.communicate(timeout=120)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            stdout, stderr = proc.communicate()
-            print(f"[WARN] processor timeout: {agent_id}")
-            raise TimeoutError(f"agent timeout: {agent_id}")
-        reply_raw = stdout.decode().strip()
-        print(f"[processor] {agent_id} reply={len(reply_raw)}chars rc={proc.returncode}")
-        
-        # 실패 또는 빈 응답 시 1회 재시도
-        if proc.returncode != 0 or not reply_raw or 'No reply from agent' in reply_raw:
-            print(f"[RETRY] {agent_id} first attempt failed, retrying in 5s...")
-            time.sleep(5)
-            proc2 = subprocess.Popen(
-                ['openclaw', 'agent', '--agent', agent_id, '--session-id', f"{session_id}-retry", '--local', '-m', prompt],
+            proc = subprocess.Popen(
+                ['openclaw', 'agent', '--agent', agent_id, '--session-id', session_id, '--local', '-m', nudge],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
-            stdout2, stderr2 = proc2.communicate(timeout=180)
-            reply_raw = stdout2.decode().strip()
-            print(f"[RETRY] {agent_id} reply={len(reply_raw)}chars rc={proc2.returncode}")
-            if proc2.returncode != 0:
-                print(f"[WARN] processor {agent_id} failed after retry: {stderr2.decode()[:200]}")
-        
-        reply = ''
-        if reply_raw and 'No reply from agent' not in reply_raw:
-            lines = reply_raw.split('\n')
-            clean_lines = [l for l in lines if not l.startswith('[') and not l.startswith('(agent') and l.strip()]
-            reply = '\n'.join(clean_lines).strip()
+            stdout, stderr = proc.communicate(timeout=300)
+            print(f"[nudge] {agent_id} done rc={proc.returncode}")
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            print(f"[nudge] {agent_id} timeout")
+        except Exception as e:
+            print(f"[nudge] {agent_id} error: {e}")
+        finally:
+            try:
+                c = get_company(cid)
+                for a in c.get('agents', []):
+                    if a['id'] == agent['id']:
+                        a['status'] = 'active'
+                        break
+                update_company(cid, {"agents": c['agents']})
+            except: pass
 
-            # 메모리에 응답 저장
-            save_agent_memory(cid, agent['id'], reply)
-            
-            # 작업 명령 처리 (칸반 자동 업데이트)
-            task_results = process_task_commands(cid, reply, agent['id'])
-            
-            # 응답 완료 시 가장 오래된 진행중 작업 자동 완료
-            company = get_company(cid)
-            board_tasks = company.get('board_tasks', [])
-            my_doing = [t for t in board_tasks if t.get('agent_id') == agent['id'] and t.get('status') == '진행중']
-            if my_doing:
-                my_doing[0]['status'] = '완료'
-                my_doing[0]['updated_at'] = datetime.now().isoformat()
-                save_company(company)
-                update_company(cid, {'board_tasks': board_tasks})
-                print(f"[kanban] '{my_doing[0].get('title','')[:30]}' 진행→완료 ({agent['id']})")
-                task_results = task_results or [f"🎉 '{my_doing[0]['title']}' 완료"]
-            
-            if task_results:
-                task_msg = ' '.join(task_results)
-                try:
-                    payload = json.dumps({"from": "시스템", "emoji": "⚙️", "to": "", "text": task_msg}).encode()
-                    req = urllib.request.Request(
-                        f'http://localhost:3000/api/agent-msg/{cid}',
-                        data=payload, headers={'Content-Type': 'application/json'}
-                    )
-                    urllib.request.urlopen(req, timeout=5)
-                except: pass
-            
-            # Estimate tokens and cost from response
-            est_tokens = max(len(reply) // 4, 100)
-            est_cost = round(est_tokens * COST_PER_1K_TOKENS / 1000, 6)
-            update_agent_cost(cid, agent['id'], est_tokens, est_cost)
-
-            if reply and len(reply) > 1 and reply not in ('No reply from agent.', ''):
-                try:
-                    chunks = split_message(reply, max_chars=1500)
-                    for chunk in chunks:
-                        payload = json.dumps({
-                            "from": agent['name'], "emoji": emoji,
-                            "to": "마스터", "text": chunk
-                        }).encode()
-                        req = urllib.request.Request(
-                            f'http://localhost:3000/api/agent-msg/{cid}',
-                            data=payload, headers={'Content-Type': 'application/json'}
-                        )
-                        urllib.request.urlopen(req, timeout=5)
-                        if len(chunks) > 1:
-                            time.sleep(1)
-                except Exception as e:
-                    print(f"[WARN] post response failed: {e}")
-            else:
-                print(f"[WARN] empty/no reply from {agent_id}")
-    except Exception as e:
-        print(f"Processor error: {e}")
-    finally:
-        _done()
+    threading.Thread(target=_run, daemon=True).start()
 
 def _check_user_intervention(cid, text, from_agent):
     """Detect if agent response contains requests needing user action (credentials, accounts, etc)."""
@@ -1831,10 +1630,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     update_company(cid, {'board_tasks': refreshed_company.get('board_tasks', [])})
                 else:
                     print(f"[WARN] board_tasks update skipped, company missing: {cid}")
-                threading.Thread(target=trigger_processor, args=(cid, instruction, target), daemon=True).start()
+                threading.Thread(target=nudge_agent, args=(cid, instruction, target), daemon=True).start()
         elif not is_mention_msg:
             # 일반 채팅 → CEO가 응답
-            threading.Thread(target=trigger_processor, args=(cid, text, 'CEO'), daemon=True).start()
+            threading.Thread(target=nudge_agent, args=(cid, text, 'CEO'), daemon=True).start()
 
     # ─── Agent Message Handler ───
     def _handle_agent_msg(self, path, body):
@@ -1944,10 +1743,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         for upper, instruction in pending_mentions:
             lock_key = f"{cid}:{upper}"
             print(f"[auto-task] {upper}: task queued (chain mention)")
-            with PROCESSORS_LOCK:
-                is_running = lock_key in PROCESSORS
-            if not is_running:
-                threading.Thread(target=trigger_processor, args=(cid, instruction, upper), daemon=True).start()
+            threading.Thread(target=nudge_agent, args=(cid, instruction, upper), daemon=True).start()
 
     # ─── Company Delete Handler ───
     def _handle_company_delete(self, body):
@@ -2303,8 +2099,6 @@ def _watchdog():
                                         ag['status'] = 'active'
                                 save_company(comp)
                                 update_company(cid, {'agents': comp['agents']})
-                            with PROCESSORS_LOCK:
-                                PROCESSORS.pop(key, None)
                             working_since.pop(key, None)
                     else:
                         working_since.pop(key, None)
