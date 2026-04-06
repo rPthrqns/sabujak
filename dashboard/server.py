@@ -901,46 +901,6 @@ def load_conversation_summary(cid):
     except:
         return None
 
-COMPLEX_PROMPT = """
-## 의사결정 프로토콜 (COMPLEX)
-복잡한 작업은 다음 단계를 따르세요:
-1. **관찰(Observe)** — 현재 상황, 채팅 맥락, 작업 상태 파악
-2. **사고(Think)** — 문제 분석, 위험 요소, 의존관계 확인
-3. **계획(Plan)** — 구체적 실행 계획 + 성공 기준
-4. **준비(Build)** — 작업 생성(칸반보드), 리소스 확인
-5. **실행(Execute)** — 계획 실행, 결과물을 워크스페이스에 파일로 저장
-6. **복기(Learn)** — 결과 검증, 교훈을 메모리에 기록
-
-## 결과물 생성 (핵심)
-작업 결과는 반드시 `_shared/deliverables/` 폴더에 파일로 저장하세요. 모든 팀원이 이 폴더를 공유합니다.
-- 기획서, 보고서, 계획안 → `.md` 파일
-- 코드, 설정 → `.py`, `.js`, `.json` 파일
-- 파일을 작성한 후 채팅에서는 간단히 "📄 [파일명] 작성 완료 - 핵심 요약"만 보고하세요.
-- 팀원과 공유할 내용은 파일에 적고, @멘션으로 파일명을 알려주세요.
-- 파일을 읽고 수정하면서 작업하세요. 대화에 모든 걸 적지 마세요.
-
-간단한 응답이면 바로 답변하세요. 복잡한 작업일 때만 위 단계를 따르세요.
-
-## 작업 관리 명령
-칸반보드에 작업을 직접 추가/변경할 수 있습니다. 응답에 다음 형식을 포함하세요:
-- `[TASK_ADD:작업명:우선순위(높음/보통/낮음)]` — 새 작업 추가 (담당자는 자동)
-- `[TASK_DONE:작업명]` — 작업 완료 처리
-- `[TASK_START:작업명]` — 작업 시작
-- `[TASK_BLOCK:작업명:사유]` — 작업 차단
-
-예시:
-"캠페인 기획안을 작성하겠습니다. [TASK_ADD:캠페인 기획안 작성:높음]"
-"기획안이 완성되었습니다. [TASK_DONE:캠페인 기획안 작성]"
-
-## 정기 작업 명령
-반복 작업이 필요하면 **반드시 [CRON_ADD:...] 형식을 사용하세요.** 외부 cron 시스템은 없습니다.
-- `[CRON_ADD:작업명:주기(분):프롬프트]` — 정기 작업 추가 (시스템이 자동 실행)
-- `[CRON_DEL:작업명]` — 정기 작업 삭제
-
-예시:
-"[CRON_ADD:5분 상황보고:5:현재 작업 진행 상황을 간단히 보고하세요]"
-"[CRON_ADD:일일 품질 점검:30:오늘 완료된 작업과 발견된 문제점을 보고하세요]"""
-
 def setup_agent_workspace(agent_workspace, name, role, company_name, emoji):
     """Initialize agent workspace with required files."""
     agent_workspace.mkdir(parents=True, exist_ok=True)
@@ -952,6 +912,15 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji):
             f"# SOUL.md\n당신은 '{company_name}'의 {name}({role})입니다.\n"
             f"팀원들에게 @멘션으로 지시하고, @CEO에게 보고하세요.\n"
             f"한국어로 소통합니다.\n"
+            f"\n## 의사결정 프로토콜 (COMPLEX)\n"
+            f"복잡한 작업은 다음 단계를 따르세요:\n"
+            f"1. 관찰(Observe) — 현재 상황, 작업 상태 파악\n"
+            f"2. 사고(Think) — 문제 분석, 위험 요소, 의존관계 확인\n"
+            f"3. 계획(Plan) — 구체적 실행 계획 + 성공 기준\n"
+            f"4. 준비(Build) — 작업 생성, 리소스 확인\n"
+            f"5. 실행(Execute) — 계획 실행, 결과물을 파일로 저장\n"
+            f"6. 복기(Learn) — 결과 검증, 교훈을 메모리에 기록\n"
+            f"간단한 응답이면 바로 답변하세요. 복잡한 작업일 때만 위 단계를 따르세요.\n"
             f"\n## 브리프\n"
             f"- _shared/newspaper.md를 읽고 현재 상황 파악\n"
             f"\n## inbox\n"
@@ -964,7 +933,9 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji):
             f"- _shared/whiteboard.md에 아이디어, 의견, 질문을 자유롭게 적으세요\n"
             f"\n## 작업 방식\n"
             f"- 긴 결과물은 _shared/deliverables/에 저장, 파일명만 채팅에\n"
+            f"- 기획서/보고서는 .md, 코드는 .py/.js/.json으로 저장\n"
             f"- [TASK_ADD:작업명:우선순위] 작업추가 / [TASK_DONE:작업명] 완료\n"
+            f"- [TASK_START:작업명] 시작 / [TASK_BLOCK:작업명:사유] 차단\n"
             f"- [CRON_ADD:작업명:분:프롬프트] 정기작업 등록\n"
         )
     if not (agent_workspace / "IDENTITY.md").exists():
