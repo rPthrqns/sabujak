@@ -1511,7 +1511,7 @@ def nudge_agent(cid, text, target):
         if my_tasks:
             ctx_parts.append("=== 내 작업 ===\n" + '\n'.join(f"- [{t.get('status','')}] {t.get('title','')}" for t in my_tasks[:5]))
         ctx = '\n\n'.join(ctx_parts)
-        report_note = '\n\n⚠️ 작업 완료 후 반드시 결과를 @CEO에게 보고하세요. @CEO 멘션을 포함하세요.' if aid != 'ceo' else ''
+        report_note = '\n\n⚠️ 작업 완료 후 반드시 결과를 @CEO에게 보고하세요. @CEO 멘션을 포함하세요.' if aid != 'ceo' else '\n\n⚠️ 팀원 결과를 취합한 후 @마스터에게 최종 보고하세요. @마스터 멘션을 포함하세요.'
         prompt = f"{ctx}\n\n메시지: {msg}{report_note}" if ctx else msg
 
         nudge_start = time.time()
