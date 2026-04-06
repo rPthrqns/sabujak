@@ -523,6 +523,14 @@ def add_board_task(cid, title, agent_id=None, status="대기", depends_on=None, 
     if not company:
         return None
     tasks = company.get('board_tasks', [])
+    # Prevent queue overflow: auto-complete old done tasks when total exceeds 50
+    MAX_TASKS = 50
+    if len(tasks) >= MAX_TASKS:
+        done = [t for t in tasks if t.get('status') == '완료']
+        if done:
+            # Remove oldest completed tasks
+            remove_ids = {t['id'] for t in done[:len(tasks) - MAX_TASKS + 5]}
+            tasks = [t for t in tasks if t['id'] not in remove_ids]
     task = {
         'id': gen_id('bt'),
         'title': title,
@@ -1605,6 +1613,27 @@ def trigger_processor(cid, text, target):
 
 # ─── HTTP Handler ───
 
+def _check_user_intervention(cid, text, from_agent):
+    """Detect if agent response contains requests needing user action (credentials, accounts, etc)."""
+    keywords = ['비밀번호', '패스워드', 'password', '계정', '아이디', '로그인', 'API 키', 'API key',
+                'AWS', 'GCP', 'Stripe', '결제', '신용카드', '도메인', 'SSL', '인증서',
+                '외부 서비스', '가입', '회원가입', '인증', 'OTP', '2FA', 'MFA']
+    lower = text.lower()
+    if not any(kw.lower() in lower for kw in keywords):
+        return
+    # Avoid duplicate
+    if has_pending_approval(cid, 'user_intervention'):
+        return
+    # Extract relevant snippet
+    lines = text.split('\n')
+    snippet_lines = [l for l in lines if any(kw.lower() in l.lower() for kw in keywords)][:3]
+    snippet = ' '.join(snippet_lines)[:200]
+    if not snippet:
+        return
+    create_approval(cid, 'user_intervention', from_agent,
+                      f"👤 사용자 개입 필요 ({from_agent}): {snippet}")
+    print(f"[intervention] {cid}: user action needed from {from_agent}")
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(BASE / "dashboard"), **kw)
@@ -1960,6 +1989,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         update_company(cid, {"chat": company["chat"], "activity_log": company["activity_log"]})
         self._json({"ok": True, "msg": msg})
+
+        # Detect user intervention needed (credentials, external accounts, etc)
+        _check_user_intervention(cid, text, from_agent)
 
         company_after_update = get_company(cid)
         if not company_after_update:
@@ -2338,6 +2370,7 @@ def _watchdog():
     """10초마다 에이전트 상태 체크, working이 오래 지속되면 active로 복원"""
     import time as _t
     working_since = {}
+    last_refresh = 0
     while True:
         _t.sleep(10)
         try:
@@ -2365,9 +2398,22 @@ def _watchdog():
                             working_since.pop(key, None)
                     else:
                         working_since.pop(key, None)
+            # Periodically keep agent sessions alive (every 5 min)
+            if _t.time() - last_refresh > 300:
+                last_refresh = _t.time()
+                for c in load_json(COMPANIES_FILE, []):
+                    for a in c.get('agents', []):
+                        agent_id = a.get('agent_id', '')
+                        if agent_id and a.get('status') == 'active':
+                            try:
+                                subprocess.run(
+                                    ['openclaw', 'agent', '--agent', agent_id, '--local',
+                                     '-m', 'ping'],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
+                                )
+                            except: pass
         except Exception as e:
             print(f"[watchdog] error: {e}")
-
 threading.Thread(target=_watchdog, daemon=True).start()
 
 with ReusableTCPServer(("", PORT), Handler) as httpd:

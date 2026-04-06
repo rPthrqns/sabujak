@@ -191,13 +191,12 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 @keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse-border{0%,100%{border-left-color:var(--accent)}50%{border-left-color:var(--accent2)}}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#374151;border-radius:2px}
-.chat-msg.mention-msg{margin:4px 12px;padding:6px 12px;background:var(--accent-bg,rgba(99,102,241,0.08));border-left:3px solid var(--accent);border-radius:0 8px 8px 0;display:flex;align-items:center;gap:8px;font-size:13px}
-.mention-from{font-size:11px;font-weight:700;color:#a78bfa;white-space:nowrap}
-.mention-arrow{font-size:13px;color:var(--accent);font-weight:700}
-.mention-target{font-size:11px;font-weight:700;color:#60a5fa;white-space:nowrap}
-.mention-sep{color:var(--dim);margin:0 4px}
-.mention-badge{font-size:10px;background:var(--accent);color:#fff;padding:2px 6px;border-radius:4px;white-space:nowrap}
-.mention-body{flex:1;line-height:1.4}
+.chat-msg.mention-msg{margin:2px 12px;padding:4px 8px;background:var(--accent-bg,rgba(99,102,241,0.06));border-left:2px solid var(--accent);border-radius:0 6px 6px 0;display:flex;align-items:center;gap:6px;font-size:11px;flex-wrap:wrap}
+.mention-from{font-size:10px;font-weight:700;color:#a78bfa;white-space:nowrap}
+.mention-arrow{font-size:11px;color:var(--accent);font-weight:700}
+.mention-target{font-size:10px;font-weight:700;color:#60a5fa;white-space:nowrap}
+.mention-sep{color:var(--dim);margin:0 2px}
+.mention-body{flex:1;line-height:1.3;font-size:11px;min-width:0}
 </style>
 </head>
 <body>
@@ -262,18 +261,26 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   <!-- Right: Kanban + Recurring Tasks tabs -->
   <div class="panel">
     <div class="right-tabs">
-      <button class="right-tab active" onclick="switchRightTab('kanban')">📋 대기열</button>
-      <button class="right-tab" onclick="switchRightTab('recurring')">🔄 정기</button>
-      <button class="right-tab" onclick="switchRightTab('deliverables')">📂 결과물</button>
+      <button class="right-tab" onclick="switchRightTab('kanban')">📋 대기열</button>
+    <button class="right-tab active" onclick="switchRightTab('approvals')">🔔 승인</button>
+    <button class="right-tab" onclick="switchRightTab('history')">📜 연혁</button>
+    <button class="right-tab" onclick="switchRightTab('recurring')">🔄 정기</button>
+    <button class="right-tab" onclick="switchRightTab('deliverables')">📂 결과물</button>
     </div>
     <div class="right-panel-content">
-      <!-- Kanban Tab -->
-      <div class="tab-pane active" id="tab-kanban">
+      <div class="tab-pane" id="tab-kanban">
         <div class="kanban-wrapper">
           <div class="kanban-board" id="kanban-board"></div>
         </div>
       </div>
-      <!-- Recurring Tasks Tab -->
+      <!-- Approvals Tab -->
+      <div class="tab-pane active" id="tab-approvals">
+        <div id="approvals-panel"><div style="padding:20px;color:var(--dim);font-size:11px;text-align:center">🔔 대기 중인 승인이 없습니다</div></div>
+      </div>
+      <!-- History Tab -->
+      <div class="tab-pane" id="tab-history">
+        <div id="history-panel"><div style="padding:20px;color:var(--dim);font-size:11px;text-align:center">📜 아직 연혁이 없습니다<br><span style="font-size:10px">COO가 정기적으로 작성합니다</span></div></div>
+      </div>
       <div class="tab-pane" id="tab-recurring">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <div class="panel-title" style="margin:0;font-size:11px">🔄 정기 작업</div>
@@ -481,6 +488,7 @@ async function fetchExtras(){
     renderCosts();
     renderApprovals();
     renderDeliverables();
+    renderHistory();
   }catch(e){console.warn('fetchExtras error',e)}
 }
 
@@ -602,7 +610,7 @@ function renderKanban(){
 
   function agentName(aid){const a=agents.find(x=>x.id===aid);return a?`${a.emoji} ${a.name}`:'';}
 
-  board.innerHTML=`<table class="task-table">
+  board.innerHTML=`<div style="max-height:100%;overflow-y:auto;padding-right:4px"><table class="task-table">
     <thead><tr><th>작업</th><th>담당</th><th>상태</th><th></th></tr></thead>
     <tbody>${sorted.map(t=>`<tr>
       <td class="${titleCls(t.status)}" title="${t.title}">${t.title}</td>
@@ -610,7 +618,7 @@ function renderKanban(){
       <td class="task-status ${statusCls(t.status)}">${statusIcon(t.status)}</td>
       <td class="task-del" onclick="deleteBoardTask('${t.id}','${t.title.replace(/'/g,"\\'")}')" title="삭제">🗑</td>
     </tr>`).join('')}</tbody>
-  </table>
+  </table></div>
   <div class="task-add-row">
     <input id="bt-title" placeholder="새 작업..." onkeydown="if(event.key==='Enter')addBoardTask()"/>
     <select id="bt-agent"><option value="">담당</option>${agents.map(a=>`<option value="${a.id}">${a.emoji} ${a.name}</option>`).join('')}</select>
@@ -704,7 +712,12 @@ function renderDeliverables(){
 
 function renderApprovals(){
   const banner=document.getElementById('approval-banner');
-  if(!cachedApprovals||!cachedApprovals.length){banner.style.display='none';updateMainHeight();return;}
+  const panel=document.getElementById('approvals-panel');
+  if(!cachedApprovals||!cachedApprovals.length){
+    banner.style.display='none';
+    if(panel)panel.innerHTML='<div style="padding:20px;color:var(--dim);font-size:11px;text-align:center">🔔 대기 중인 승인이 없습니다</div>';
+    updateMainHeight();return;
+  }
   banner.style.display='flex';
   let html='';
   cachedApprovals.forEach(a=>{
@@ -712,6 +725,16 @@ function renderApprovals(){
     html+=`<span class="ab-icon">⚠️</span><div class="ab-text"><strong>승인 요청</strong> · ${a.detail||a.type} <span style="opacity:.6">${time}</span></div><div class="ab-actions"><button class="ab-btn approve" onclick="resolveApproval('${a.id}','approved')">✅ 승인</button><button class="ab-btn reject" onclick="resolveApproval('${a.id}','rejected')">❌ 거부</button></div>`;
   });
   banner.innerHTML=html;
+  // Also render in panel
+  if(panel){
+    let phtml='<div style="padding:6px 0">';
+    cachedApprovals.forEach(a=>{
+      const time=a.time?new Date(a.time).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'';
+      phtml+=`<div style="background:var(--card);border-radius:8px;padding:8px 10px;margin-bottom:6px;border-left:3px solid var(--yellow)"><div style="font-size:11px;font-weight:600;color:#fcd34d;margin-bottom:4px">⚠️ ${a.type}</div><div style="font-size:10px;color:var(--text);margin-bottom:6px">${a.detail||''}</div><div style="font-size:9px;color:var(--dim);margin-bottom:6px">${time}</div><div style="display:flex;gap:4px"><button onclick="resolveApproval('${a.id}','approved')" style="background:#064e3b;color:#6ee7b7;border:none;padding:3px 10px;border-radius:4px;font-size:10px;cursor:pointer">✅ 승인</button><button onclick="resolveApproval('${a.id}','rejected')" style="background:#7f1d1d;color:#fca5a5;border:none;padding:3px 10px;border-radius:4px;font-size:10px;cursor:pointer">❌ 거부</button></div></div>`;
+    });
+    phtml+='</div>';
+    panel.innerHTML=phtml;
+  }
   updateMainHeight();
 }
 
@@ -743,12 +766,14 @@ function updateMainHeight(){
 // ─── Right panel tab switch ───
 function switchRightTab(tab){
   currentRightTab=tab;
-  const labelMap={kanban:'대기열',recurring:'정기',deliverables:'결과물'};
+  const labelMap={kanban:'대기열',approvals:'승인',history:'연혁',recurring:'정기',deliverables:'결과물'};
   const target=labelMap[tab]||'';
   document.querySelectorAll('.right-tab').forEach(el=>{
     el.classList.toggle('active',el.textContent.includes(target));
   });
   document.getElementById('tab-kanban').classList.toggle('active',tab==='kanban');
+  document.getElementById('tab-approvals').classList.toggle('active',tab==='approvals');
+  document.getElementById('tab-history').classList.toggle('active',tab==='history');
   document.getElementById('tab-recurring').classList.toggle('active',tab==='recurring');
   document.getElementById('tab-deliverables').classList.toggle('active',tab==='deliverables');
 }
@@ -819,9 +844,9 @@ function appendChat(m){
     // @제거 후 내용 추출
     content=content.replace(/@\w+\s*/g,'').trim();
     if(content.startsWith('"')&&content.endsWith('"')) content=content.slice(1,-1).trim();
-    const targetHtml=targets.map(t=>`<span class="mention-target">${t}</span>`).join('<span class="mention-arrow">→</span>');
+    const targetHtml=targets.map(t=>`<span class="mention-target">${t}</span>`).join('<span class="mention-arrow">↓</span>');
     const bodyHtml=mdToHtml(content);
-    el.innerHTML+=`<div class="chat-msg mention-msg"><div class="mention-from">${avatar} ${m.from}</div><div class="mention-arrow">→</div>${targetHtml}${content?`<div class="mention-sep">|</div><div class="mention-body">${bodyHtml}</div>`:''}</div>`;
+    el.innerHTML+=`<div class="chat-msg mention-msg"><span class="mention-from">${avatar}</span><span class="mention-arrow">↓</span>${targetHtml}${content?`<div class="mention-sep">|</div><div class="mention-body">${bodyHtml}</div>`:''}</div>`;
   }
   // 멘션도 일반도 없으면 원본 통째로
   if(!normalText && mentionLines.length===0){
@@ -1036,6 +1061,24 @@ async function deleteTask(taskId,title){
 renderLangSwitch();applyLang();load();
 
 // SSE for real-time updates
+function renderHistory(){
+  const panel=document.getElementById('history-panel');
+  if(!panel||!currentCompany)return;
+  const c=companies.find(x=>x.id===currentCompany);
+  if(!c)return;
+  const log=(c.activity_log||[]).filter(e=>e.agent==='COO'||e.agent==='시스템');
+  if(!log.length){panel.innerHTML='<div style="padding:20px;color:var(--dim);font-size:11px;text-align:center">📜 아직 연혁이 없습니다<br><span style="font-size:10px">COO가 정기적으로 작성합니다</span></div>';return;}
+  let html='<div style="padding:4px 0;overflow-y:auto;max-height:100%">';
+  const recent=log.slice(-30).reverse();
+  recent.forEach(e=>{
+    const time=e.time||'';
+    const text=(e.text||'').substring(0,150);
+    html+=`<div style="padding:5px 8px;border-bottom:1px solid var(--border);font-size:10px"><div style="display:flex;justify-content:space-between"><span style="color:var(--dim)">${time}</span><span style="color:#a78bfa;font-weight:600">${e.agent}</span></div><div style="color:var(--text);margin-top:2px;line-height:1.3">${text}</div></div>`;
+  });
+  html+='</div>';
+  panel.innerHTML=html;
+}
+
 let sseReconnectTimer=null;
 function syncCurrentCompanyChatLen(){
   if(!currentCompany)return;
