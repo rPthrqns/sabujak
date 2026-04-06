@@ -43,7 +43,6 @@ AGENT_TEMPLATES = {
     "ceo": {"name": "CEO", "role": {"ko":"총괄","en":"Executive","ja":"総責任者","zh":"总负责人"}, "emoji": "👔"},
     "cmo": {"name": "CMO", "role": {"ko":"마케팅","en":"Marketing","ja":"マーケティング","zh":"市场"}, "emoji": "📈"},
     "cto": {"name": "CTO", "role": {"ko":"기술/개발","en":"Tech/Dev","ja":"技術/開発","zh":"技术/开发"}, "emoji": "💻"},
-    "coo": {"name": "COO", "role": {"ko":"운영","en":"Operations","ja":"運営","zh":"运营"}, "emoji": "⚙️"},
     "cfo": {"name": "CFO", "role": {"ko":"재무","en":"Finance","ja":"財務","zh":"财务"}, "emoji": "💰"},
     "designer": {"name": "Designer", "role": {"ko":"디자인","en":"Design","ja":"デザイン","zh":"设计"}, "emoji": "🎨"},
     "hr": {"name": "HR", "role": {"ko":"인사","en":"HR","ja":"人事","zh":"人事"}, "emoji": "🤝"},
@@ -53,15 +52,15 @@ AGENT_TEMPLATES = {
 }
 
 TOPIC_ORGS = {
-    "default": ["ceo", "coo", "cmo", "cto"],
-    "marketing": ["ceo", "cmo", "designer", "cto", "coo"],
-    "development": ["ceo", "cto", "designer", "coo"],
-    "ecommerce": ["ceo", "cmo", "cto", "sales", "coo", "support"],
-    "finance": ["ceo", "cfo", "legal", "coo"],
-    "recruitment": ["ceo", "hr", "cmo", "coo"],
-    "restaurant": ["ceo", "cmo", "coo", "designer"],
+    "default": ["ceo", "cmo", "cto"],
+    "marketing": ["ceo", "cmo", "designer", "cto"],
+    "development": ["ceo", "cto", "designer"],
+    "ecommerce": ["ceo", "cmo", "cto", "sales", "support"],
+    "finance": ["ceo", "cfo", "legal"],
+    "recruitment": ["ceo", "hr", "cmo"],
+    "restaurant": ["ceo", "cmo", "designer"],
     "education": ["ceo", "cmo", "cto", "support"],
-    "healthcare": ["ceo", "cfo", "legal", "cmo", "coo"],
+    "healthcare": ["ceo", "cfo", "legal", "cmo"],
     "realestate": ["ceo", "sales", "cmo", "legal", "cto"],
 }
 
@@ -283,7 +282,7 @@ def load_json(path, default=None):
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             print(f"[WARN] corrupted JSON: {path}, trying backup...")
             try:
                 with open(str(path) + '.bak', 'r', encoding='utf-8') as f:
@@ -310,8 +309,16 @@ def save_json(path, data):
             import shutil
             shutil.copy2(path, str(path) + '.bak')
         except: pass
-    with open(path, 'w', encoding='utf-8') as f:
-        f.write(test)
+    # Atomic write via temp file
+    import tempfile, os
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(test)
+        os.replace(tmp, str(path))
+    except:
+        try: os.unlink(tmp)
+        except: pass
 
 def gen_id(prefix="id"):
     """Generate a short unique ID."""
@@ -1289,7 +1296,6 @@ def trigger_processor(cid, text, target):
 
     available_agents = ", ".join([f"@{a['id'].upper()}" for a in company.get('agents', []) if a['id'] != agent['id']])
     is_ceo = agent['id'] == 'ceo'
-    is_coo = agent['id'] == 'coo'
 
     # ─── 파일 기반 컨텍스트 (Claw-Empire 방식) ───
     # 대신 워크스페이스 파일을 읽어서 컨텍스트 구성
@@ -1326,27 +1332,29 @@ def trigger_processor(cid, text, target):
     if len(context_str) > 2000:
         context_str = context_str[-2000:]
     
-    # 4) COO 전용: 대기열 + 정기작업 상태
-    coo_context = ''
-    if is_coo:
+    # 4) CEO 전용: 대기열 + 정기작업 상태
+    status_context = ''
+    # 4) CEO: 대기열 + 정기작업 상태
+    status_context = ''
+    if is_ceo:
         company = get_company(cid)
         tasks = company.get('board_tasks', [])
         if tasks:
             waiting = [t for t in tasks if t.get('status') == '대기']
             doing = [t for t in tasks if t.get('status') == '진행중']
             done = [t for t in tasks if t.get('status') == '완료']
-            coo_parts = ['[대기열 현황]']
-            if waiting: coo_parts.append(f"  ⏸️ 대기: {', '.join(t['title'][:20] for t in waiting)}")
-            if doing: coo_parts.append(f"  ⏳ 진행: {', '.join(t['title'][:20] for t in doing)}")
-            coo_parts.append(f"  ✅ 완료: {len(done)}건")
-            coo_context = '\n'.join(coo_parts)
-        recurring = company.get('recurring_tasks', [])
-        if recurring:
-            active_r = [r for r in recurring if r.get('status') == 'running']
-            if active_r:
-                coo_context += '\n[정기작업] ' + ', '.join(r.get('title','')[:20] for r in active_r)
-    
-    # 4) 대화 20개 초과 시 백그라운드 자동 요약 (파일 요약도 함께)
+            status_parts = ['[대기열 현황]']
+            if waiting: status_parts.append(f"  ⏸️ 대기: {', '.join(t['title'][:20] for t in waiting)}")
+            if doing: status_parts.append(f"  ⏳ 진행: {', '.join(t['title'][:20] for t in doing)}")
+            status_parts.append(f"  ✅ 완료: {len(done)}건")
+            status_context = '\n'.join(status_parts)
+            recurring = company.get('recurring_tasks', [])
+            if recurring:
+                active_r = [r for r in recurring if r.get('status') == 'running']
+                if active_r:
+                    status_context += '\n[정기작업] ' + ', '.join(r.get('title','')[:20] for r in active_r)
+
+    # 5) 대화 20개 초과 시 백그라운드 자동 요약 (파일 요약도 함께)
     if len(chat_history) > SUMMARY_THRESHOLD:
         threading.Thread(target=auto_summarize, args=(cid,), daemon=True).start()
     
@@ -1375,24 +1383,7 @@ def trigger_processor(cid, text, target):
 
 ⚠️ 당신은 총괄입니다. 직접 작업을 수행하지 마세요. 마스터의 요청을 받으면 반드시 @멘션으로 팀원에게 작업을 분배하세요. 형식: @CMO 구체적인 지시 내용 (한 줄에 하나씩)
 
-{COMPLEX_PROMPT}
-
-{f"=== 에이전트 메모리 ===\n{memory_context}\n" if memory_context else ""}{task_context}{f"=== 현재 상황 (파일+최근 대화) ===\n{context_str}\n" if context_str else ""}
-메시지: "{text}"
-답변:"""
-    elif is_coo:
-        prompt = f"""당신은 '{company_name}'의 비서 {agent['name']}({agent['role']})입니다. 주제: {topic}
-
-팀원: {available_agents}
-공유 결과물 폴더: {company_workspace}/deliverables/
-
-⚠️ 당신은 운영 비서입니다. 다음을 관리하세요:
-1. 대기열 — 어느 작업이 대기/진행/완료인지 파악하고 정체된 작업을 CEO에게 보고하세요
-2. 결과물 — _shared/deliverables/에 파일이 정상적으로 업로드되었는지 확인하세요
-3. 정기작업 — 예정된 반복 작업이 정상 실행되는지 모니터하세요
-4. 진행률 — 전체 프로젝트 진행 상황을 요약해서 보고하세요
-
-@CEO에게 정기적으로 현황을 보고하세요. 팀원에게도 @멘션으로 상태 확인을 요청할 수 있습니다.
+{status_context}
 
 {COMPLEX_PROMPT}
 
@@ -1842,10 +1833,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         elif not is_mention_msg:
             # 일반 채팅 → CEO가 응답
             threading.Thread(target=trigger_processor, args=(cid, text, 'CEO'), daemon=True).start()
-            # COO도 현황 보고
-            coo_exists = any(a['id'] == 'coo' for a in company.get('agents', []))
-            if coo_exists:
-                threading.Thread(target=trigger_processor, args=(cid, f"현 상황을 2-3줄로 요약해서 @CEO에게 보고하세요: {text}", 'COO'), daemon=True).start()
 
     # ─── Agent Message Handler ───
     def _handle_agent_msg(self, path, body):
