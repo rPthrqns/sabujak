@@ -970,15 +970,16 @@ def _s(key, lang, **kwargs):
     return text
 
 
-def setup_agent_workspace(agent_workspace, name, role, company_name, emoji, lang="ko"):
+def setup_agent_workspace(agent_workspace, name, role, company_name, emoji, lang="ko", cid=None):
     """Initialize agent workspace with required files."""
     agent_workspace.mkdir(parents=True, exist_ok=True)
     (agent_workspace / "AGENTS.md").write_text(
         f"# AGENTS.md\n\n{_s('agents.intro', lang)}\n{_s('agents.skip', lang)}\n")
     # SOUL.md에 절대경로 안내 추가
-    whiteboard_path = DATA / cid / "_shared" / "whiteboard.md"
-    deliverables_path = DATA / cid / "_shared" / "deliverables"
-    shared_path = DATA / cid / "_shared"
+    if cid:
+        whiteboard_path = DATA / cid / "_shared" / "whiteboard.md"
+        deliverables_path = DATA / cid / "_shared" / "deliverables"
+        shared_path = DATA / cid / "_shared"
     if not (agent_workspace / "SOUL.md").exists():
         (agent_workspace / "SOUL.md").write_text(
             f"# SOUL.md\n{_s('role.intro', lang, company=company_name, name=name, role=role)}\n"
@@ -995,6 +996,7 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji, lang
             f"- Shared: {shared_path}\n"
             f"- Deliverables: {deliverables_path}\n"
             f"- Whiteboard: {whiteboard_path}\n"
+            if cid else ""
         )
     if not (agent_workspace / "IDENTITY.md").exists():
         (agent_workspace / "IDENTITY.md").write_text(
@@ -1026,7 +1028,7 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji, lang
 
 def register_agent(agent_id, agent_workspace, name, role, company_name, emoji, lang='ko', wait=False, on_done=None, company_id=None):
     """Register and activate an OpenClaw agent."""
-    setup_agent_workspace(agent_workspace, name, role, company_name, emoji, lang)
+    setup_agent_workspace(agent_workspace, name, role, company_name, emoji, lang, cid=company_id)
     if wait:
         _register_and_activate(agent_id, str(agent_workspace), name, role)
         if on_done: on_done()
