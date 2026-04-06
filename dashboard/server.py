@@ -2403,6 +2403,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not approval_id: self._json({"error": "approval_id required"}, 400); return
         approval = resolve_approval(cid, approval_id, resolution)
         if approval:
+            # Pass user response back to the requesting agent
+            response_text = body.get('response', '').strip()
+            from_agent = approval.get('from_agent', '')
+            if from_agent and response_text:
+                agent_id = f"{cid}-{from_agent.lower()}"
+                nudge_msg = f"@{from_agent} 마스터의 결재 응답입니다:\n{response_text}"
+                print(f"[approval] sending response to {from_agent}: {response_text[:60]}")
+                threading.Thread(target=nudge_agent, args=(cid, nudge_msg, from_agent.upper()), daemon=True).start()
+            elif from_agent and resolution == 'approved' and not response_text:
+                agent_id = f"{cid}-{from_agent.lower()}"
+                nudge_msg = f"@{from_agent} 마스터가 결재를 승인했습니다."
+                print(f"[approval] sending approval to {from_agent}")
+                threading.Thread(target=nudge_agent, args=(cid, nudge_msg, from_agent.upper()), daemon=True).start()
+            elif from_agent and resolution == 'rejected':
+                agent_id = f"{cid}-{from_agent.lower()}"
+                nudge_msg = f"@{from_agent} 마스터가 결재를 반려했습니다."
+                print(f"[approval] sending rejection to {from_agent}")
+                threading.Thread(target=nudge_agent, args=(cid, nudge_msg, from_agent.upper()), daemon=True).start()
+
             # If agent addition was approved, actually add the agent
             if resolution == 'approved' and approval.get('type') == 'agent_add':
                 company = get_company(cid)

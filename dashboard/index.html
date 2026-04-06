@@ -275,7 +275,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
       </div>
       <!-- Approvals Tab -->
       <div class="tab-pane active" id="tab-approvals">
-        <div id="approvals-panel"><div style="padding:20px;color:var(--dim);font-size:11px;text-align:center">🔔 대기 중인 승인이 없습니다</div></div>
+        <div id="approvals-panel"><div style="padding:20px;color:var(--dim);font-size:11px;text-align:center">🔔 대기 중인 결재가 없습니다</div></div>
       </div>
       <!-- History Tab -->
       <div class="tab-pane" id="tab-history">
@@ -384,8 +384,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 
 <script>
 const UI = {
-  ko:{createBtn:'＋ 새 회사',emptyTitle:'아직 회사가 없습니다',emptyHint:'아래 버튼을 눌러 AI 회사를 시작하세요',emptyBtn:'＋ 새 회사 만들기',modalTitle:'🏢 새 회사 만들기',nameLabel:'회사명 / 프로젝트명',topicLabel:'주제 / 목표',langLabel:'언어 / Language',cancel:'취소',submit:'생성',orgTitle:'👥 조직',chatTitle:'💬 소통',taskTitle:'📌 작업',logTitle:'📋 로그',operating:'운영 중',chatPlaceholder:'@멘션으로 에이전트에게 지시',send:'전송',namePh:'예: O2O 마케팅 프로젝트',topicPh:'예: 온라인 비즈니스, 웹 서비스 개발...',tabKanban:'📋 대기열',tabApprovals:'🔔 승인',tabHistory:'📜 연혁',tabRecurring:'🔄 정기',tabDeliverables:'📂 결과물',noApprovals:'🔔 대기 중인 승인이 없습니다',noHistory:'📜 아직 연혁이 없습니다',recurringTitle:'🔄 정기 작업',deliverablesTitle:'📂 결과물',approvalReq:'승인 요청',approve:'승인',reject:'거부',kanbanTask:'작업',kanbanAssignee:'담당',kanbanStatus:'상태',statusWaiting:'⏸️ 대기',statusDoing:'⏳ 진행 중',statusDone:'✅ 완료',newTask:'새 작업...',assignee:'담당',noAssignee:''},
-  en:{createBtn:'＋ New Company',emptyTitle:'No companies yet',emptyHint:'Click below to start your first AI company',emptyBtn:'＋ Create Company',modalTitle:'🏢 Create New Company',nameLabel:'Company / Project Name',topicLabel:'Topic / Goal',langLabel:'Language',cancel:'Cancel',submit:'Create',orgTitle:'👥 Team',chatTitle:'💬 Chat',taskTitle:'📌 Tasks',logTitle:'📋 Log',operating:'Running',chatPlaceholder:'@mention an agent to instruct',send:'Send',namePh:'e.g. Marketing Campaign',topicPh:'e.g. E-commerce, Web Development...',tabKanban:'📋 Tasks',tabApprovals:'🔔 Approvals',tabHistory:'📜 History',tabRecurring:'🔄 Recurring',tabDeliverables:'📂 Files',noApprovals:'🔔 No pending approvals',noHistory:'📜 No history yet',recurringTitle:'🔄 Recurring Tasks',deliverablesTitle:'📂 Deliverables',approvalReq:'Approval Request',approve:'Approve',reject:'Reject',kanbanTask:'Task',kanbanAssignee:'Assignee',kanbanStatus:'Status',statusWaiting:'⏸️ Waiting',statusDoing:'⏳ In Progress',statusDone:'✅ Done',newTask:'New task...',assignee:'Assignee',noAssignee:''},
+  ko:{createBtn:'＋ 새 회사',emptyTitle:'아직 회사가 없습니다',emptyHint:'아래 버튼을 눌러 AI 회사를 시작하세요',emptyBtn:'＋ 새 회사 만들기',modalTitle:'🏢 새 회사 만들기',nameLabel:'회사명 / 프로젝트명',topicLabel:'주제 / 목표',langLabel:'언어 / Language',cancel:'취소',submit:'생성',orgTitle:'👥 조직',chatTitle:'💬 소통',taskTitle:'📌 작업',logTitle:'📋 로그',operating:'운영 중',chatPlaceholder:'@멘션으로 에이전트에게 지시',send:'전송',namePh:'예: O2O 마케팅 프로젝트',topicPh:'예: 온라인 비즈니스, 웹 서비스 개발...',tabKanban:'📋 대기열',tabApprovals:'🔔 결재',tabHistory:'📜 연혁',tabRecurring:'🔄 정기',tabDeliverables:'📂 결과물',noApprovals:'🔔 대기 중인 결재가 없습니다',noHistory:'📜 아직 연혁이 없습니다',recurringTitle:'🔄 정기 작업',deliverablesTitle:'📂 결과물',approvalReq:'결재 요청',approve:'제출',reject:'반려',kanbanTask:'작업',kanbanAssignee:'담당',kanbanStatus:'상태',statusWaiting:'⏸️ 대기',statusDoing:'⏳ 진행 중',statusDone:'✅ 완료',newTask:'새 작업...',assignee:'담당',noAssignee:''},
+  en:{createBtn:'＋ New Company',emptyTitle:'No companies yet',emptyHint:'Click below to start your first AI company',emptyBtn:'＋ Create Company',modalTitle:'🏢 Create New Company',nameLabel:'Company / Project Name',topicLabel:'Topic / Goal',langLabel:'Language',cancel:'Cancel',submit:'Create',orgTitle:'👥 Team',chatTitle:'💬 Chat',taskTitle:'📌 Tasks',logTitle:'📋 Log',operating:'Running',chatPlaceholder:'@mention an agent to instruct',send:'Send',namePh:'e.g. Marketing Campaign',topicPh:'e.g. E-commerce, Web Development...',tabKanban:'📋 Tasks',tabApprovals:'🔔 Decisions',tabHistory:'📜 History',tabRecurring:'🔄 Recurring',tabDeliverables:'📂 Files',noApprovals:'🔔 No pending approvals',noHistory:'📜 No history yet',recurringTitle:'🔄 Recurring Tasks',deliverablesTitle:'📂 Deliverables',approvalReq:'Decision Request',approve:'Submit',reject:'Reject',kanbanTask:'Task',kanbanAssignee:'Assignee',kanbanStatus:'Status',statusWaiting:'⏸️ Waiting',statusDoing:'⏳ In Progress',statusDone:'✅ Done',newTask:'New task...',assignee:'Assignee',noAssignee:''},
   ja:{createBtn:'＋ 新規作成',emptyTitle:'まだ会社がありません',emptyHint:'下のボタンを押してAI会社を始めましょう',emptyBtn:'＋ 会社を作成',modalTitle:'🏢 新規会社を作成',nameLabel:'会社名 / プロジェクト名',topicLabel:'テーマ / 目標',langLabel:'言語',cancel:'キャンセル',submit:'作成',orgTitle:'👥 組織',chatTitle:'💬 チャット',taskTitle:'📌 タスク',logTitle:'📋 ログ',operating:'稼働中',chatPlaceholder:'@メンションでエージェントに指示',send:'送信',namePh:'例: マーケティングプロジェクト',topicPh:'例: EC運営, Web開発...'},
   zh:{createBtn:'＋ 新建公司',emptyTitle:'还没有公司',emptyHint:'点击下方按钮开始您的AI公司',emptyBtn:'＋ 创建公司',modalTitle:'🏢 创建新公司',nameLabel:'公司名 / 项目名',topicLabel:'主题 / 目标',langLabel:'语言',cancel:'取消',submit:'创建',orgTitle:'👥 团队',chatTitle:'💬 沟通',taskTitle:'📌 任务',logTitle:'📋 日志',operating:'运行中',chatPlaceholder:'@提及代理发送指令',send:'发送',namePh:'例: 营销项目',topicPh:'例: 电商运营, 网站开发...'}
 };
@@ -714,7 +714,7 @@ function renderApprovals(){
   const panel=document.getElementById('approvals-panel');
   if(!cachedApprovals||!cachedApprovals.length){
     banner.style.display='none';
-    if(panel)panel.innerHTML='<div style="padding:20px;color:var(--dim);font-size:11px;text-align:center">🔔 대기 중인 승인이 없습니다</div>';
+    if(panel)panel.innerHTML='<div style="padding:20px;color:var(--dim);font-size:11px;text-align:center">🔔 대기 중인 결재가 없습니다</div>';
     updateMainHeight();return;
   }
   banner.style.display='flex';
@@ -729,7 +729,7 @@ function renderApprovals(){
     let phtml='<div style="padding:6px 0">';
     cachedApprovals.forEach(a=>{
       const time=a.time?new Date(a.time).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'';
-      phtml+=`<div style="background:var(--card);border-radius:8px;padding:8px 10px;margin-bottom:6px;border-left:3px solid var(--yellow)"><div style="font-size:11px;font-weight:600;color:#fcd34d;margin-bottom:4px">⚠️ ${a.type}</div><div style="font-size:10px;color:var(--text);margin-bottom:6px">${a.detail||''}</div><div style="font-size:9px;color:var(--dim);margin-bottom:6px">${time}</div><div style="display:flex;gap:4px"><button onclick="resolveApproval('${a.id}','approved')" style="background:#064e3b;color:#6ee7b7;border:none;padding:3px 10px;border-radius:4px;font-size:10px;cursor:pointer">✅ 승인</button><button onclick="resolveApproval('${a.id}','rejected')" style="background:#7f1d1d;color:#fca5a5;border:none;padding:3px 10px;border-radius:4px;font-size:10px;cursor:pointer">❌ 거부</button></div></div>`;
+      phtml+=`<div style="background:var(--card);border-radius:8px;padding:8px 10px;margin-bottom:6px;border-left:3px solid var(--yellow)"><div style="font-size:10px;color:var(--dim);margin-bottom:2px">${a.from_agent||''} ${a.from_emoji||''} · ${time}</div><div style="font-size:11px;font-weight:600;color:#fcd34d;margin-bottom:4px">${a.type||'요청'}</div><div style="font-size:11px;color:var(--text);margin-bottom:6px">${a.detail||''}</div><textarea id="apr-${a.id}" placeholder="답변이나 필요한 정보를 입력하세요..." style="width:100%;box-sizing:border-box;background:var(--bg);color:var(--text);border:1px solid #374151;border-radius:4px;padding:6px 8px;font-size:11px;resize:vertical;min-height:36px;margin-bottom:4px;font-family:inherit"></textarea><div style="display:flex;gap:4px"><button onclick="resolveApproval('${a.id}','approved')" style="background:#064e3b;color:#6ee7b7;border:none;padding:4px 12px;border-radius:4px;font-size:10px;cursor:pointer">✅ 제출</button><button onclick="resolveApproval('${a.id}','rejected')" style="background:#7f1d1d;color:#fca5a5;border:none;padding:4px 12px;border-radius:4px;font-size:10px;cursor:pointer">❌ 반려</button></div></div>`;
     });
     phtml+='</div>';
     panel.innerHTML=phtml;
@@ -739,10 +739,12 @@ function renderApprovals(){
 
 async function resolveApproval(aprId,resolution){
   try{
-    const res=await fetch(`/api/approval-${resolution==='approved'?'approve':'reject'}/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({approval_id:aprId})});
+    const response=document.getElementById('apr-'+aprId);
+    const responseText=response?response.value.trim():'';
+    const res=await fetch(`/api/approval-${resolution==='approved'?'approve':'reject'}/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({approval_id:aprId,response:responseText})});
     const data=await res.json();
     if(data.ok){
-      toast(resolution==='approved'?'✅ 승인되었습니다':'❌ 거부되었습니다');
+      toast(resolution==='approved'?'✅ 제출되었습니다':'❌ 반려되었습니다');
       cachedApprovals=cachedApprovals.filter(a=>a.id!==aprId);
       renderApprovals();
       // Refresh company data since approval might change things
@@ -765,7 +767,7 @@ function updateMainHeight(){
 // ─── Right panel tab switch ───
 function switchRightTab(tab){
   currentRightTab=tab;
-  const labelMap={kanban:'대기열',approvals:'승인',history:'연혁',recurring:'정기',deliverables:'결과물'};
+  const labelMap={kanban:'대기열',approvals:'결재',history:'연혁',recurring:'정기',deliverables:'결과물'};
   const target=labelMap[tab]||'';
   document.querySelectorAll('.right-tab').forEach(el=>{
     el.classList.toggle('active',el.textContent.includes(target));
