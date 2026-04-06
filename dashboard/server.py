@@ -952,17 +952,21 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji):
             f"# SOUL.md\n당신은 '{company_name}'의 {name}({role})입니다.\n"
             f"팀원들에게 @멘션으로 지시하고, @CEO에게 보고하세요.\n"
             f"한국어로 소통합니다.\n"
+            f"\n## 브리프\n"
+            f"- _shared/newspaper.md를 읽고 현재 상황 파악\n"
+            f"\n## inbox\n"
+            f"- inbox/ 폴더에 받은 지시가 있습니다\n"
+            f"- 확인 후 작업 수행, 응답하면 자동 보관됩니다\n"
+            f"\n## 스탠드업\n"
+            f"- 작업 완료 후 standup.md 업데이트\n"
+            f"- 양식: 어제 한 것 / 지금 하는 것 / 필요한 것\n"
+            f"\n## 화이트보드\n"
+            f"- _shared/whiteboard.md에 아이디어, 의견, 질문을 자유롭게 적으세요\n"
             f"\n## 작업 방식\n"
-            f"- 마스터의 요청이나 @멘션을 받으면 작업을 수행하세요\n"
-            f"- 긴 결과물(코드, 보고서, 분석 등)은 deliverables/ 폴더에 파일로 저장한 뒤 파일명만 알려주세요\n"
-            f"  예: '@CEO deliverables/report.md 작성 완료했습니다'\n"
-            f"- 결과물은 _shared/deliverables/에 저장하면 팀 전체가 공유합니다\n"
-            f"\n## 정기작업 관리\n"
-            f"- 정기적으로 확인해야 할 업무가 있다면 [CRON_ADD:작업명:분단위:프롬프트]로 등록하세요\n"
-            f"- 불필요한 정기작업은 [CRON_DEL:작업명]으로 삭제하세요\n"
-            f"\n## 응답 전송\n"
-            f"- 작업 완료 후 반드시 아래 curl로 응답을 전송하세요:\n"
-            f"  curl -s -X POST http://localhost:3000/api/agent-msg/{{COMPANY_ID}} -H 'Content-Type: application/json' -d '{{\"from\":\"{name}\",\"emoji\":\"{emoji}\",\"text\":\"응답 내용\"}}'\n")
+            f"- 긴 결과물은 _shared/deliverables/에 저장, 파일명만 채팅에\n"
+            f"- [TASK_ADD:작업명:우선순위] 작업추가 / [TASK_DONE:작업명] 완료\n"
+            f"- [CRON_ADD:작업명:분:프롬프트] 정기작업 등록\n"
+        )
     if not (agent_workspace / "IDENTITY.md").exists():
         (agent_workspace / "IDENTITY.md").write_text(
             f"- **Name:** {name}\n- **Role:** {role}\n- **Emoji:** {emoji}\n")
@@ -1270,6 +1274,11 @@ def create_company(name, topic, lang="ko"):
     }
     companies.append(company)
     save_json(COMPANIES_FILE, companies)
+    # Init shared folders
+    shared = DATA / company_id / "_shared"
+    shared.mkdir(parents=True, exist_ok=True)
+    (shared / "whiteboard.md").write_text("# 화이트보드\n아이디어, 의견, 질문을 자유롭게 적으세요.\n", encoding='utf-8')
+    (shared / "deliverables").mkdir(exist_ok=True)
     state_file = DATA / f"{company_id}.json"
     save_json(state_file, company)
     return company
@@ -1279,6 +1288,131 @@ def create_company(name, topic, lang="ko"):
 # Per-agent queue for ordered processing + dedup
 _AGENT_QUEUES = {}  # {"cid:agent_id": deque of texts}
 _AGENT_BUSY = set()   # {"cid:agent_id"} currently processing
+
+def generate_newspaper(cid):
+    """Generate a concise daily brief from current state."""
+    company = get_company(cid)
+    if not company:
+        return ''
+    name = company.get('name', '?')
+    now = datetime.now().strftime('%m/%d %H:%M')
+    lines = [f"📰 {name} 브리프 ({now})"]
+
+    # 1) Agent status
+    agents = company.get('agents', [])
+    if agents:
+        parts = []
+        for a in agents:
+            status = a.get('status', 'active')
+            emoji = a.get('emoji', '👤')
+            label = '⏳' if status == 'working' else '✅'
+            parts.append(f"  {label} {emoji} {a.get('name','?')}: {status}")
+        lines.append('\n## 팀원 상태')
+        lines.extend(parts)
+
+    # 2) Tasks summary
+    tasks = company.get('board_tasks', [])
+    if tasks:
+        waiting = [t for t in tasks if t.get('status') == '대기']
+        doing = [t for t in tasks if t.get('status') == '진행중']
+        done_today = [t for t in tasks if t.get('status') == '완료' and t.get('updated_at', '').startswith(datetime.now().strftime('%Y-%m-%d'))]
+        lines.append('\n## 작업 현황')
+        if waiting:
+            lines.append(f"⏸️ 대기 ({len(waiting)}): {', '.join(t.get('title','')[:20] for t in waiting[:5])}")
+        if doing:
+            lines.append(f"⏳ 진행중 ({len(doing)}): {', '.join(t.get('title','')[:20] for t in doing[:5])}")
+        if done_today:
+            lines.append(f"✅ 오늘 완료 ({len(done_today)}): {', '.join(t.get('title','')[:20] for t in done_today[:5])}")
+
+    # 3) Pending approvals
+    approvals = [a for a in company.get('approvals', []) if a.get('status') == 'pending']
+    if approvals:
+        lines.append('\n## 승인 대기')
+        for a in approvals[:3]:
+            lines.append(f"⚠️ {a.get('type','?')}: {a.get('detail','')[:60]}")
+
+    # 4) Recent decisions (user messages with decision keywords)
+    chat = company.get('chat', [])
+    recent_user = [m for m in chat[-20:] if m.get('type') == 'user']
+    if recent_user:
+        lines.append('\n## 마스터의 최근 지시')
+        for m in recent_user[-3:]:
+            txt = (m.get('text', '') or '')[:100]
+            lines.append(f"- {txt}")
+
+    # 5) Recent deliverables
+    shared_dir = DATA / cid / "_shared" / "deliverables"
+    if shared_dir.exists():
+        files = sorted(shared_dir.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True)[:5]
+        if files:
+            lines.append('\n## 최근 결과물')
+            for f in files:
+                mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime('%H:%M')
+                lines.append(f"- {f.name} ({mtime})")
+
+    # 6) Whiteboard highlights
+    wb_path = DATA / cid / "_shared" / "whiteboard.md"
+    if wb_path.exists():
+        try:
+            wb = wb_path.read_text(encoding='utf-8').strip()
+            if wb and len(wb) > 30:
+                lines.append('\n## 화이트보드')
+                lines.append(wb[:300])
+        except: pass
+
+    brief = '\n'.join(lines)
+
+    # Save to file
+    brief_dir = DATA / cid / "_shared"
+    brief_dir.mkdir(parents=True, exist_ok=True)
+    (brief_dir / "newspaper.md").write_text(brief, encoding='utf-8')
+
+    return brief
+
+
+def read_agent_standup(cid, agent_id):
+    """Read agent's standup file if it exists."""
+    path = DATA / cid / "workspaces" / agent_id / "standup.md"
+    if path.exists():
+        try: return path.read_text(encoding='utf-8')[:500]
+        except: pass
+    return None
+
+
+def add_to_inbox(cid, agent_id, from_name, instruction):
+    """Write a message to agent's inbox. Server-managed, agent only reads."""
+    inbox_dir = DATA / cid / "workspaces" / agent_id / "inbox"
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    now = datetime.now()
+    filename = now.strftime("%H%M%S") + f"-{from_name}.md"
+    content = f"보낸 사람: {from_name}\n시간: {now.strftime('%m/%d %H:%M')}\n\n{instruction}"
+    (inbox_dir / filename).write_text(content, encoding='utf-8')
+    return filename
+
+
+def read_agent_inbox(cid, agent_id, limit=5):
+    """Read latest inbox messages."""
+    inbox_dir = DATA / cid / "workspaces" / agent_id / "inbox"
+    if not inbox_dir.exists(): return None
+    files = sorted(inbox_dir.iterdir(), key=lambda f: f.name)[-limit:]
+    if not files: return None
+    parts = []
+    for f in files:
+        try: parts.append(f.read_text(encoding='utf-8')[:200])
+        except: pass
+    return '\n---\n'.join(parts)
+
+
+def archive_inbox(cid, agent_id):
+    """Move processed inbox items to archive."""
+    inbox_dir = DATA / cid / "workspaces" / agent_id / "inbox"
+    archive_dir = DATA / cid / "workspaces" / agent_id / "inbox-done"
+    if not inbox_dir.exists(): return
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    for f in inbox_dir.iterdir():
+        try: f.rename(archive_dir / f.name)
+        except: pass
+
 
 def nudge_agent(cid, text, target):
     """Queue-based nudge: FIFO order, dedup recent, context-aware, no locks."""
@@ -1294,26 +1428,26 @@ def nudge_agent(cid, text, target):
     emoji = agent.get('emoji', '👔')
     aid = agent['id']
 
-    # Build context: recent 3 chat messages
-    chat = company.get('chat', [])
-    recent = []
-    for m in chat[-6:]:
-        if m.get('type') == 'system': continue
-        who = m.get('from', '?')
-        txt = (m.get('text', '') or '')[:150]
-        recent.append(f"[{who}] {txt}")
-    context = '\n'.join(recent) if recent else ''
-
-    # Build my tasks
+    # Build context: newspaper + standup + inbox
+    newspaper = generate_newspaper(cid)
+    standup = read_agent_standup(cid, aid)
+    inbox = read_agent_inbox(cid, aid)
     my_tasks = [t for t in company.get('board_tasks', [])
                 if t.get('agent_id') == aid and t.get('status') in ('대기', '진행중')]
-    task_info = ''
-    if my_tasks:
-        task_info = '\n'.join(f"- [{t.get('status','')}] {t.get('title','')}" for t in my_tasks[:5])
 
-    prompt = text
-    if context:
-        prompt = f"=== 최근 대화 ===\n{context}\n\n=== 내 작업 ===\n{task_info}\n\n메시지: {text}" if task_info else f"=== 최근 대화 ===\n{context}\n\n메시지: {text}"
+    context_parts = []
+    if newspaper:
+        context_parts.append(f"=== 브리프 ===\n{newspaper}")
+    if inbox:
+        context_parts.append(f"=== 받은 메시지 (inbox) ===\n{inbox}")
+    if standup:
+        context_parts.append(f"=== 내 스탠드업 ===\n{standup}")
+    if my_tasks:
+        task_lines = '\n'.join(f"- [{t.get('status','')}] {t.get('title','')}" for t in my_tasks[:5])
+        context_parts.append(f"=== 내 작업 ===\n{task_lines}")
+    context = '\n\n'.join(context_parts)
+
+    prompt = f"{context}\n\n메시지: {text}" if context else text
 
     # Use persistent session for memory continuity
     session_id = f"{agent_id}-main"
@@ -1374,6 +1508,7 @@ def nudge_agent(cid, text, target):
                 if clean:
                     save_agent_memory(cid, aid, clean)
                     process_task_commands(cid, clean, aid)
+                    archive_inbox(cid, aid)
                     est_tokens = max(len(clean) // 4, 100)
                     est_cost = round(est_tokens * COST_PER_1K_TOKENS / 1000, 6)
                     update_agent_cost(cid, aid, est_tokens, est_cost)
@@ -1489,6 +1624,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             company = get_company(cid)
             if company: self._json(company)
             else: self._json({"error": "not found"}, 404)
+        elif self.path.startswith('/api/newspaper/'):
+            cid = self.path.split('/')[-1]
+            brief = generate_newspaper(cid)
+            self._json({"newspaper": brief})
+        elif self.path.startswith('/api/inbox/'):
+            parts = self.path.split('/')
+            cid = parts[-2]
+            agent_id = parts[-1]
+            inbox = read_agent_inbox(cid, agent_id)
+            self._json({"inbox": inbox})
         elif self.path.startswith('/api/task-list/'):
             cid = self.path.split('/')[-1]
             self._json(get_recurring_tasks(cid))
@@ -1718,10 +1863,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         # 멘션 메시지면 에이전트들에게 instruction 전달
         if is_mention_msg and instruction:
-            # 멘션 내용에서 작업 자동 추출 → 타겟 칸반에 추가 (무조건)
+            # 멘션 내용에서 작업 자동 추출 → 타겟 칸반에 추가 + inbox에 기록
             for target in targets:
                 task_title = extract_task_from_instruction(instruction) or instruction[:30]
                 add_board_task(cid, task_title, target.lower(), '대기', [], '')
+                add_to_inbox(cid, target.lower(), '마스터', instruction)
                 refreshed_company = get_company(cid)
                 if refreshed_company:
                     update_company(cid, {'board_tasks': refreshed_company.get('board_tasks', [])})
