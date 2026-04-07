@@ -2076,6 +2076,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         elif path.startswith('/api/webhook/'):
             self._handle_webhook(path, body)
 
+        elif path.startswith('/api/cross-nudge'):
+            self._handle_cross_nudge(path, body)
+
         elif path.startswith('/api/meeting/'):
             self._handle_meeting(path, body)
 
@@ -2103,6 +2106,46 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # Forward to CEO
         threading.Thread(target=nudge_agent, args=(cid, f"[웹훅 수신] {text[:200]}", 'CEO'), daemon=True).start()
         self._json({"ok": True})
+
+    # ─── Cross-Company Outsourcing Handler ───
+    def _handle_cross_nudge(self, path, body):
+        """POST /api/cross-nudge — delegate work from one company's agent to another."""
+        from_cid = body.get('from_cid', '').strip()
+        to_cid = body.get('to_cid', '').strip()
+        from_agent = body.get('from_agent', '').strip()
+        to_agent = body.get('to_agent', '').strip()
+        text = body.get('text', '').strip()
+        if not all([from_cid, to_cid, text]):
+            self._json({"error": "from_cid, to_cid, text required"}, 400); return
+        from_company = get_company(from_cid)
+        to_company = get_company(to_cid)
+        if not from_company: self._json({"error": f"company not found: {from_cid}"}, 404); return
+        if not to_company: self._json({"error": f"company not found: {to_cid}"}, 404); return
+
+        from_name = from_company.get('name', from_cid)
+        to_name = to_company.get('name', to_cid)
+        if not to_agent:
+            agents = to_company.get('agents', [])
+            to_agent = agents[0]['id'] if agents else 'ceo'
+        outsource_text = (
+            f"🔗 [아웃소싱 의뢰] {from_name} → {to_name}\n"
+            f"의뢰 내용: {text}\n\n"
+            "외부 파트너사 요청입니다. 전문적으로 검토하고 결과를 응답하세요."
+        )
+
+        def _run():
+            # Send task to target company
+            nudge_agent(to_cid, outsource_text, to_agent.upper())
+            # Log in source company's chat
+            now_str = datetime.now().isoformat()
+            src_msg = {
+                'from': f'🔗 아웃소싱→{to_name}',
+                'emoji': '🔗', 'text': f"[외주 의뢰] {to_name} {to_agent.upper()}에게 전달:\n{text}",
+                'time': now_str, 'type': 'system'
+            }
+            append_chat(from_cid, src_msg, broadcast=True)
+        threading.Thread(target=_run, daemon=True).start()
+        self._json({"ok": True, "from": from_name, "to": to_name, "to_agent": to_agent})
 
     # ─── Meeting Handler ───
     def _handle_meeting(self, path, body):
