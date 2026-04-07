@@ -4,6 +4,9 @@ Enhanced with Goals, Kanban Board, Cost Tracking, Approval Gates, and Task Depen
 import hmac, json, os, re, http.server, socketserver, subprocess, threading, time, urllib.request, urllib.parse, uuid
 from pathlib import Path
 from datetime import datetime
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parent))
+from runtime import get_runtime
 from db import (init_db, migrate_from_json, db_get_company, db_save_company, db_update_company,
                db_get_all_companies, db_delete_company, db_add_chat, db_add_chats, db_add_activity, db_add_activities,
                db_add_approval, db_get_approvals, db_update_approval, db_get_tasks, db_add_task, db_update_task, db_delete_task,
@@ -28,6 +31,9 @@ def _get_company_lock(cid):
             _COMPANY_LOCKS[cid] = threading.Lock()
         return _COMPANY_LOCKS[cid]
 _running_task_threads = set()
+
+# ─── Runtime Abstraction ───
+RUNTIME = get_runtime('openclaw')
 
 def _reset_stuck_agents():
     """서버 시작 시 working 상태인 에이전트를 active로 리셋"""
@@ -1049,20 +1055,12 @@ def _register_and_activate(agent_id, workspace, name, role):
         bs2.unlink()
     
     with AGENT_LOCK:
-        try:
-            subprocess.run(
-                ['openclaw', 'agents', 'add', agent_id, '--workspace', str(ws_path), '--non-interactive'],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15
-            )
-        except: pass
-    
+        RUNTIME.register(agent_id, str(ws_path))
+
     # 첫 메시지로 세션 활성화
     try:
-        subprocess.run(
-            ['openclaw', 'agent', '--agent', agent_id, '--local',
-             '-m', f'당신은 {name}({role})입니다. "확인"이라고만 답하세요.'],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
-        )
+        RUNTIME.run(agent_id, f"{agent_id}-init",
+                    f'당신은 {name}({role})입니다. "확인"이라고만 답하세요.', timeout=30)
         print(f"[register] {agent_id} ({name}) activated")
     except Exception as e:
         print(f"[register] {agent_id} activate failed: {e}")
@@ -1621,49 +1619,36 @@ def nudge_agent(cid, text, target):
                     update_company(cid, {'board_tasks': c['board_tasks']})
                     break
 
-            proc = subprocess.Popen(
-                ['openclaw', 'agent', '--agent', agent_id,
-                 '--session-id', session_id, '--local', '-m', prompt],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
             try:
-                stdout, stderr = proc.communicate(timeout=120)
+                reply_raw = RUNTIME.run(agent_id, session_id, prompt, timeout=120)
             except subprocess.TimeoutExpired:
-                print(f"[nudge] {agent_id} main timeout, killing")
-                proc.kill(); proc.wait(timeout=5)
+                print(f"[nudge] {agent_id} main timeout")
                 raise
             elapsed = time.time() - nudge_start
-            reply_raw = stdout.decode().strip()
-            print(f"[nudge] {agent_id} reply={len(reply_raw)}chars rc={proc.returncode} time={elapsed:.1f}s raw={reply_raw[:100]}")
+            print(f"[nudge] {agent_id} reply={len(reply_raw)}chars time={elapsed:.1f}s raw={reply_raw[:100]}")
 
-            retry_ok = True  # Assume OK unless retry needed
-            if not reply_raw or 'No reply from agent' in reply_raw or proc.returncode != 0:
+            retry_ok = bool(reply_raw)
+            if not reply_raw or 'No reply from agent' in reply_raw:
                 print(f"[nudge] {agent_id} no reply, retrying...")
                 time.sleep(2)
-                proc2 = subprocess.Popen(
-                    ['openclaw', 'agent', '--agent', agent_id,
-                     '--session-id', f"{session_id}-retry", '--local', '-m', prompt],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE
-                )
-                stdout2, stderr2 = proc2.communicate(timeout=120)
-                reply_raw = stdout2.decode().strip()
-                retry_ok = proc2.returncode == 0
-                print(f"[nudge] {agent_id} retry reply={len(reply_raw)}chars rc={proc2.returncode}")
+                try:
+                    reply_raw = RUNTIME.run(agent_id, f"{session_id}-retry", prompt, timeout=120)
+                    retry_ok = bool(reply_raw)
+                except subprocess.TimeoutExpired:
+                    retry_ok = False
+                print(f"[nudge] {agent_id} retry reply={len(reply_raw)}chars")
 
             # 3rd attempt: session reset
             if not reply_raw or 'No reply from agent' in reply_raw or not retry_ok:
                 print(f"[nudge] {agent_id} 2nd attempt failed, resetting session...")
                 time.sleep(5)
                 new_session = f"{agent_id}-fresh-{int(time.time())}"
-                proc3 = subprocess.Popen(
-                    ['openclaw', 'agent', '--agent', agent_id,
-                     '--session-id', new_session, '--local', '-m', prompt],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE
-                )
-                stdout3, stderr3 = proc3.communicate(timeout=120)
-                reply_raw = stdout3.decode().strip()
+                try:
+                    reply_raw = RUNTIME.run(agent_id, new_session, prompt, timeout=120)
+                except subprocess.TimeoutExpired:
+                    reply_raw = ''
                 print(f"[nudge] {agent_id} 3rd attempt reply={len(reply_raw)}chars")
-                if reply_raw and 'No reply from agent' not in reply_raw and proc3.returncode == 0:
+                if reply_raw and 'No reply from agent' not in reply_raw:
                     session_id = new_session  # Use new session going forward
 
             # All attempts failed — notify user
@@ -1728,12 +1713,10 @@ def nudge_agent(cid, text, target):
                         print(f"[nudge] CEO acknowledged without delegation, prompting for plan...")
                         time.sleep(2)
                         followup = f"{agent_name}, 당신은 방금 '{text[:50]}'에 대해 계획만 언급하고 팀원에게 지시하지 않았습니다. 지금 바로 구체적인 계획을 세우고 @CMO @CTO에 각자 해야 할 작업을 @멘션으로 지시하세요. COMPLEX 프로토콜을 따르세요."
-                        proc_f = subprocess.Popen(
-                            ['openclaw', 'agent', '--agent', agent_id,
-                             '--session-id', session_id, '--local', '-m', followup],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                        stdout_f, stderr_f = proc_f.communicate(timeout=120)
-                        reply_f = stdout_f.decode().strip()
+                        try:
+                            reply_f = RUNTIME.run(agent_id, session_id, followup, timeout=120)
+                        except subprocess.TimeoutExpired:
+                            reply_f = ''
                         print(f"[nudge] CEO followup reply={len(reply_f)}chars")
                         if reply_f:
                             clean_f = '\n'.join(l for l in reply_f.split('\n')
@@ -1750,15 +1733,7 @@ def nudge_agent(cid, text, target):
                                         print(f"[nudge] followup post failed: {e}")
 
         except subprocess.TimeoutExpired:
-            print(f"[nudge] {agent_id} timeout after {time.time()-nudge_start:.0f}s, killing...")
-            for p in [locals().get('proc'), locals().get('proc2'), locals().get('proc3'), locals().get('proc_f')]:
-                if not p:
-                    continue
-                try:
-                    p.kill()
-                    p.wait(timeout=5)
-                except:
-                    pass
+            print(f"[nudge] {agent_id} timeout after {time.time()-nudge_start:.0f}s")
         except Exception as e:
             print(f"[nudge] {agent_id} error: {e}")
         finally:
@@ -2595,12 +2570,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         for agent in company.get('agents', []):
             agent_id = agent.get('agent_id', '')
             if agent_id:
-                try:
-                    subprocess.run(['openclaw', 'agents', 'delete', agent_id, '--force'],
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
-                    print(f"[delete] agent {agent_id} removed")
-                except Exception as e:
-                    print(f"[WARN] agent delete failed {agent_id}: {e}")
+                ok = RUNTIME.delete(agent_id)
+                print(f"[delete] agent {agent_id} {'removed' if ok else 'delete failed'}")
         import shutil
         company_dir = DATA / cid
         if company_dir.exists():
@@ -2664,10 +2635,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not agent: self._json({"error": "agent not found"}, 404); return
         agent_id = agent.get('agent_id', '')
         if agent_id:
-            try:
-                subprocess.run(['openclaw', 'agents', 'delete', agent_id, '--force'],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
-            except: pass
+            RUNTIME.delete(agent_id)
         company['agents'] = [a for a in company['agents'] if a['id'] != aid]
         now = datetime.now().strftime('%H:%M')
         company['activity_log'].append({"time": now, "agent": "CEO", "text": f"👋 {agent.get('emoji','🤖')} {agent['name']} 퇴사"})
@@ -2689,18 +2657,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 import shutil
                 shutil.rmtree(sessions_dir, ignore_errors=True)
                 sessions_dir.mkdir(parents=True, exist_ok=True)
-            subprocess.run(['openclaw', 'agents', 'delete', agent_id, '--force'],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+            RUNTIME.delete(agent_id)
             time.sleep(1)
-            subprocess.run(
-                ['openclaw', 'agents', 'add', agent_id, '--workspace', str(agent_workspace), '--non-interactive'],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15
-            )
-            subprocess.run(
-                ['openclaw', 'agent', '--agent', agent_id, '--local',
-                 '-m', f'당신은 {agent["name"]}({agent["role"]})입니다. 확인만 하세요.'],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
-            )
+            RUNTIME.register(agent_id, str(agent_workspace))
+            try:
+                RUNTIME.run(agent_id, f"{agent_id}-reactivate",
+                            f'당신은 {agent["name"]}({agent["role"]})입니다. 확인만 하세요.',
+                            timeout=30)
+            except Exception:
+                pass
             for a2 in company['agents']:
                 if a2['id'] == aid: a2['status'] = 'active'; break
             update_company(cid, {"agents": company["agents"]})
@@ -2895,8 +2860,8 @@ def ensure_agents_registered():
     """On startup, re-register all agents from companies data. Runs non-blocking."""
     companies = load_json(COMPANIES_FILE, [])
     try:
-        result = subprocess.run(['openclaw', 'agents', 'list'], capture_output=True, text=True, timeout=20)
-        registered_output = result.stdout or ''
+        from runtime.openclaw import OpenClawRuntime
+        registered_output = OpenClawRuntime().list_registered()
     except Exception as e:
         print(f"[INIT] agents list failed: {e}")
         registered_output = ''
