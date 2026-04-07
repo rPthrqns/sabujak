@@ -208,7 +208,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .modal-submit.loading::after{content:'';position:absolute;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:btn-spin .6s linear infinite;top:50%;left:50%;margin:-7px 0 0 -7px}
 .modal-submit.loading span{opacity:0}
 @keyframes btn-spin{to{transform:rotate(360deg)}}
-.toast{position:fixed;bottom:24px;right:24px;background:#1e293b;color:#e2e8f0;padding:12px 20px;border-radius:10px;font-size:13px;z-index:200;animation:toast-in .3s ease;box-shadow:0 4px 20px rgba(0,0,0,.4);border:1px solid #334155;max-width:320px}
+.toast-stack{position:fixed;bottom:24px;right:24px;z-index:200;display:flex;flex-direction:column-reverse;gap:8px;pointer-events:none}
+.toast{background:#1e293b;color:#e2e8f0;padding:12px 20px;border-radius:10px;font-size:13px;animation:toast-in .3s ease;box-shadow:0 4px 20px rgba(0,0,0,.4);border:1px solid #334155;max-width:320px;pointer-events:auto}
 .toast.fade-out{animation:toast-out .3s ease forwards}
 @keyframes toast-in{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 @keyframes toast-out{to{opacity:0;transform:translateY(20px)}}
@@ -1199,8 +1200,9 @@ document.getElementById('chat-input').addEventListener('keydown',e=>{if(e.key===
 function openModal(){document.getElementById('modal').classList.add('show')}
 function closeModal(){document.getElementById('modal').classList.remove('show')}
 function setTopic(t){document.getElementById('m-topic').value=t}
-function toast(msg,duration=3000){const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);setTimeout(()=>{el.classList.add('fade-out');setTimeout(()=>el.remove(),300)},duration)}
-function toastLoading(msg){const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);return el}
+function _getToastStack(){let s=document.getElementById('toast-stack');if(!s){s=document.createElement('div');s.id='toast-stack';s.className='toast-stack';document.body.appendChild(s)}return s}
+function toast(msg,duration=3000){const el=document.createElement('div');el.className='toast';el.textContent=msg;_getToastStack().appendChild(el);setTimeout(()=>{el.classList.add('fade-out');setTimeout(()=>el.remove(),300)},duration)}
+function toastLoading(msg){const el=document.createElement('div');el.className='toast';el.textContent=msg;_getToastStack().appendChild(el);return el}
 function toastDone(el,msg,duration=3000){if(!el||!el.parentNode)return;el.textContent=msg;setTimeout(()=>{el.classList.add('fade-out');setTimeout(()=>el.remove(),300)},duration)}
 
 async function deleteCompany(cid,name){
