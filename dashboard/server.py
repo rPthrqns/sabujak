@@ -2576,7 +2576,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             threading.Thread(target=nudge_agent, args=(cid, instruction, upper), daemon=True).start()
 
     # ─── Company Delete Handler ───
-    def _handle_company_delete(self, body):
+    def _handle_company_delete(self, path, body):
         cid = body.get('id')
         company = get_company(cid)
         if not company: self._json({"ok": True}); return
