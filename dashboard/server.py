@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """AI Company Hub - Multi-company Dashboard Server
 Enhanced with Goals, Kanban Board, Cost Tracking, Approval Gates, and Task Dependencies."""
-import json, os, re, http.server, socketserver, subprocess, threading, time, urllib.request, uuid
+import hmac, json, os, re, http.server, socketserver, subprocess, threading, time, urllib.request, uuid
 from pathlib import Path
 from datetime import datetime
 from db import (init_db, migrate_from_json, db_get_company, db_save_company, db_update_company,
@@ -112,7 +112,7 @@ def sse_broadcast(event_type, data):
             try:
                 wfile.write(msg.encode())
                 wfile.flush()
-            except:
+            except (BrokenPipeError, OSError, ConnectionResetError):
                 dead.append(wfile)
         for w in dead:
             SSE_CLIENTS.remove(w)
@@ -295,7 +295,7 @@ def load_json(path, default=None):
                 import shutil
                 shutil.copy2(str(path) + '.bak', path)
                 return data
-            except:
+            except (json.JSONDecodeError, UnicodeDecodeError, OSError):
                 print(f"[WARN] backup also failed, resetting {path}")
                 if default is not None:
                     save_json(path, default)
@@ -313,7 +313,8 @@ def save_json(path, data):
         try:
             import shutil
             shutil.copy2(path, str(path) + '.bak')
-        except: pass
+        except OSError as e:
+            print(f"[WARN] backup failed for {path}: {e}")
     # Atomic write via temp file
     import tempfile, os
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix='.tmp')
@@ -321,9 +322,12 @@ def save_json(path, data):
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
             f.write(test)
         os.replace(tmp, str(path))
-    except:
-        try: os.unlink(tmp)
-        except: pass
+    except OSError as e:
+        print(f"[WARN] save_json write failed for {path}: {e}")
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 def gen_id(prefix="id"):
     """Generate a short unique ID."""
@@ -357,7 +361,8 @@ def init_companies():
                             a['status'] = 'active'
                     db_save_company(data)
                     print(f"[init] recovered {data['id']} from {f.name}")
-            except: pass
+            except Exception as e:
+                print(f"[init] failed to recover {f.name}: {e}")
     print(f"[init] {len(db_get_all_companies())} companies ready")
     return db_get_all_companies()
 
@@ -1670,7 +1675,8 @@ def nudge_agent(cid, text, target):
                     has_agent_mention = bool(re.search(r'@(CMO|CTO|CEO|CFO|COO)', clean, re.IGNORECASE))
                     # Rate limit mentions to prevent ping-pong loops
                     if has_agent_mention:
-                        chain = f"{aid}->{','.join(re.findall(r'@(\w+)', clean, re.IGNORECASE))}"
+                        mentions = ','.join(re.findall(r'@(\w+)', clean, re.IGNORECASE))
+                        chain = f"{aid}->{mentions}"
                         mention_count = _bump_mention_chain(cid, chain)
                         if mention_count > _MENTION_LIMIT:
                             print(f"[nudge] mention rate limit hit: {chain} ({mention_count})")
@@ -1826,20 +1832,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             rel_path = unquote(rel_path)
             # 형식: {cid}/workspaces/{agent}/deliverables/{file}
             parts = rel_path.split('/', 1)
-            if len(parts) >= 1:
+            if len(parts) >= 2:
                 cid = parts[0]
-                file_rel = parts[1] if len(parts) > 1 else ''
-                file_path = DATA / cid / file_rel
-                if file_path.exists() and file_path.is_file():
-                    try:
+                file_rel = parts[1]
+                try:
+                    # 경로 탐색 공격 방지: 실제 경로를 resolve하고 허용 디렉토리 내인지 확인
+                    allowed_base = (DATA / cid).resolve()
+                    file_path = (DATA / cid / file_rel).resolve()
+                    if not str(file_path).startswith(str(allowed_base) + os.sep) and str(file_path) != str(allowed_base):
+                        self._json({'error': 'forbidden'}, 403)
+                        return
+                    if file_path.exists() and file_path.is_file():
                         content = file_path.read_text(encoding='utf-8')
                         self.send_response(200)
                         self.send_header('Content-Type', 'text/plain; charset=utf-8')
                         self.end_headers()
                         self.wfile.write(content.encode('utf-8'))
                         return
-                    except:
-                        pass
+                except (OSError, ValueError) as e:
+                    print(f"[WARN] file read error: {e}")
             self._json({'error': 'file not found'}, 404)
         elif self.path.startswith('/api/costs/'):
             cid = self.path.split('/')[-1]
@@ -1896,7 +1907,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             initial = json.dumps(companies, ensure_ascii=False)
             wfile.write(f"event: init\ndata: {initial}\n\n".encode())
             wfile.flush()
-        except:
+        except (BrokenPipeError, OSError, ConnectionResetError):
             pass
         try:
             while True:
@@ -1904,7 +1915,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 try:
                     wfile.write(b": keepalive\n\n")
                     wfile.flush()
-                except:
+                except (BrokenPipeError, OSError, ConnectionResetError):
                     break
         finally:
             with SSE_LOCK:
@@ -1922,7 +1933,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         # ─── Existing Endpoints ───
         if path == '/api/companies':
-            company = create_company(body.get('name',''), body.get('topic',''), body.get('lang','ko'))
+            name = body.get('name', '').strip()
+            if not name or len(name) > 100:
+                self._json({"error": "name must be 1-100 characters"}, 400); return
+            lang = body.get('lang', 'ko')
+            if lang not in LANG:
+                lang = 'ko'
+            company = create_company(name, body.get('topic',''), lang)
             self._json({"ok": True, "company": company})
 
         elif path.startswith('/api/chat/'):
@@ -2007,7 +2024,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not company: self._json({"error": "not found"}, 404); return
         wh_secret = company.get('webhook_secret', '')
         req_secret = self.headers.get('X-Webhook-Secret', '')
-        if wh_secret and req_secret != wh_secret:
+        if wh_secret and not hmac.compare_digest(req_secret, wh_secret):
             self._json({"error": "unauthorized"}, 401); return
         text = body.get('text', body.get('message', json.dumps(body, ensure_ascii=False)))
         if not text: self._json({"error": "empty"}, 400); return

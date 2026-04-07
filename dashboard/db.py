@@ -103,7 +103,12 @@ def db_get_company(cid):
         company['activity_log'] = db_get_activity(cid)
         conn.close()
         # Merge with stored data for fields not in schema
-        extra = json.loads(company.pop('data', '{}'))
+        try:
+            extra = json.loads(company.pop('data', '{}'))
+        except (json.JSONDecodeError, ValueError):
+            print(f"[WARN] corrupted JSON data for company {cid}, using empty data")
+            extra = {}
+            company.pop('data', None)
         company.update({k: v for k, v in extra.items() if k not in company})
         return company
 
@@ -179,9 +184,13 @@ def db_get_all_companies():
 
     tasks = {}
     for r in task_rows:
+        try:
+            depends_on = json.loads(r['depends_on'])
+        except (json.JSONDecodeError, ValueError):
+            depends_on = []
         tasks.setdefault(r['company_id'], []).append({
             'id': r['id'], 'title': r['title'], 'agent_id': r['agent_id'],
-            'status': r['status'], 'depends_on': json.loads(r['depends_on']),
+            'status': r['status'], 'depends_on': depends_on,
             'deadline': r['deadline'], 'created_at': r['created_at'],
             'updated_at': r['updated_at']
         })
@@ -203,7 +212,12 @@ def db_get_all_companies():
     companies = []
     for row in company_rows:
         company = dict(row)
-        extra = json.loads(company.pop('data', '{}'))
+        try:
+            extra = json.loads(company.pop('data', '{}'))
+        except (json.JSONDecodeError, ValueError):
+            print(f"[WARN] corrupted JSON data for company {company.get('id','?')}, using empty data")
+            extra = {}
+            company.pop('data', None)
         company.update({k: v for k, v in extra.items() if k not in company})
         cid = company['id']
         company['chat'] = chats.get(cid, [])
@@ -289,10 +303,17 @@ def db_get_tasks(cid):
         conn = _conn()
         rows = conn.execute("SELECT * FROM board_tasks WHERE company_id=? ORDER BY sort_order, id", (cid,)).fetchall()
         conn.close()
-    return [{'id': r['id'], 'title': r['title'], 'agent_id': r['agent_id'],
-             'status': r['status'], 'depends_on': json.loads(r['depends_on']),
-             'deadline': r['deadline'], 'created_at': r.get('created_at',''),
-             'updated_at': r.get('updated_at','')} for r in rows]
+    result = []
+    for r in rows:
+        try:
+            depends_on = json.loads(r['depends_on'])
+        except (json.JSONDecodeError, ValueError):
+            depends_on = []
+        result.append({'id': r['id'], 'title': r['title'], 'agent_id': r['agent_id'],
+                       'status': r['status'], 'depends_on': depends_on,
+                       'deadline': r['deadline'], 'created_at': r.get('created_at',''),
+                       'updated_at': r.get('updated_at','')})
+    return result
 
 def db_add_task(cid, task):
     with _lock:
@@ -351,12 +372,12 @@ def db_delete_task(cid, task_id):
 def _save_tasks(conn, cid, tasks):
     conn.execute("DELETE FROM board_tasks WHERE company_id=?", (cid,))
     for i, t in enumerate(tasks):
-        conn.execute("""INSERT OR REPLACE INTO board_tasks 
-            (id, company_id, title, agent_id, status, depends_on, deadline, created_at, sort_order)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        conn.execute("""INSERT OR REPLACE INTO board_tasks
+            (id, company_id, title, agent_id, status, depends_on, deadline, created_at, updated_at, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (t.get('id', f"task-{i}"), cid, t.get('title',''), t.get('agent_id',''),
              t.get('status','대기'), json.dumps(t.get('depends_on',[])),
-             t.get('deadline',''), t.get('created_at',''), i))
+             t.get('deadline',''), t.get('created_at',''), t.get('updated_at',''), i))
 
 # ─── Approvals ───
 
@@ -372,11 +393,16 @@ def db_get_approvals(cid, status=None):
              'type': r['approval_type'], 'detail': r['detail'], 'status': r['status'],
              'time': r['time'], 'created_at': r['created_at']} for r in rows]
 
+_APPROVAL_ALLOWED_FIELDS = {'status', 'detail', 'time'}
+
 def db_update_approval(cid, aid, updates):
+    allowed = {k: v for k, v in updates.items() if k in _APPROVAL_ALLOWED_FIELDS}
+    if not allowed:
+        return
     with _lock:
         conn = _conn()
-        sets = ', '.join(f"{k}=?" for k in updates)
-        vals = list(updates.values()) + [aid, cid]
+        sets = ', '.join(f"{k}=?" for k in allowed)
+        vals = list(allowed.values()) + [aid, cid]
         conn.execute(f"UPDATE approvals SET {sets} WHERE id=? AND company_id=?", vals)
         conn.commit()
         conn.close()
@@ -488,7 +514,8 @@ def migrate_from_json():
         return
     try:
         companies = json.loads(companies_file.read_text(encoding='utf-8') or '[]')
-    except:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
+        print(f"[db] Migration JSON read failed: {e}")
         return
     migrated = 0
     for comp in companies:
