@@ -154,6 +154,18 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .right-panel-content{flex:1;overflow:hidden;display:flex;flex-direction:column}
 .right-panel-content .tab-pane{display:none;flex:1;overflow-y:auto;overflow-x:hidden;flex-direction:column}
 .right-panel-content .tab-pane.active{display:flex}
+/* Center panel tabs */
+.center-tabs{display:flex;gap:2px;padding:6px 10px;border-bottom:1px solid #1e293b;flex-shrink:0;overflow-x:auto}
+.center-tab{background:transparent;border:none;padding:5px 10px;border-radius:6px;font-size:10px;color:var(--dim);cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0}
+.center-tab:hover{color:var(--text);background:#1e293b}
+.center-tab.active{background:var(--accent);color:white}
+.center-panel-content{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.center-panel-content .tab-pane{display:none;flex:1;overflow-y:auto;overflow-x:hidden;flex-direction:column}
+.center-panel-content .tab-pane.active{display:flex}
+/* Chat init overlay */
+#chat-init-overlay{position:absolute;inset:0;background:rgba(10,10,26,0.9);flex-direction:column;align-items:center;justify-content:center;z-index:10;border-radius:12px;gap:12px;text-align:center}
+.init-progress-bar{width:200px;height:5px;background:#1e293b;border-radius:3px;overflow:hidden}
+.init-progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:3px;transition:width .5s}
 
 .log-item{display:flex;gap:6px;padding:5px 0;border-bottom:1px solid #1a1a2e;font-size:10px;animation:fadeIn .2s}
 .log-avatar{width:22px;height:22px;border-radius:50%;background:var(--card);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
@@ -266,13 +278,73 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     </div>
   </div>
 
-  <!-- Center: Agent Node Graph -->
-  <div class="panel" style="position:relative;min-height:80px;border-bottom:1px solid var(--border)">
-    <svg id="agent-graph" width="100%" height="80" style="display:block"></svg>
-    <button onclick="openOrgChart()" style="position:absolute;top:4px;right:6px;background:rgba(30,41,59,.85);border:1px solid #334155;border-radius:5px;color:#94a3b8;font-size:10px;padding:2px 7px;cursor:pointer" title="조직도 전체 보기">⛶ 조직도</button>
+  <!-- Center: Tabbed panel (조직도 + 대기열·결재·연혁·정기·결과물) -->
+  <div class="panel" style="padding:0;overflow:hidden">
+    <div class="center-tabs">
+      <button class="center-tab active" onclick="switchCenterTab('orgchart')">🏢 조직도</button>
+      <button class="center-tab" onclick="switchCenterTab('kanban')">📋 대기열</button>
+      <button class="center-tab" onclick="switchCenterTab('approvals')">🔔 결재</button>
+      <button class="center-tab" onclick="switchCenterTab('history')">📜 연혁</button>
+      <button class="center-tab" onclick="switchCenterTab('recurring')">🔄 정기</button>
+      <button class="center-tab" onclick="switchCenterTab('deliverables')">📂 결과물</button>
+    </div>
+    <div class="center-panel-content">
+      <!-- 조직도 tab -->
+      <div class="tab-pane active" id="tab-orgchart" style="position:relative">
+        <svg id="agent-graph" style="display:none;width:0;height:0;position:absolute"></svg>
+        <svg id="org-inline-svg" style="width:100%;flex:1"></svg>
+        <button onclick="openOrgChart()" style="position:absolute;top:8px;right:8px;background:rgba(30,41,59,.9);border:1px solid #334155;border-radius:5px;color:#94a3b8;font-size:10px;padding:3px 8px;cursor:pointer" title="전체화면 조직도">⛶ 전체화면</button>
+        <div id="org-inline-panel" style="position:absolute;right:0;top:0;bottom:0;width:240px;background:#0f172a;border-left:1px solid #1e293b;padding:12px;overflow-y:auto;display:none">
+          <div id="org-inline-panel-content"></div>
+        </div>
+      </div>
+      <!-- 대기열 tab -->
+      <div class="tab-pane" id="tab-kanban">
+        <div class="kanban-wrapper">
+          <div class="kanban-board" id="kanban-board"></div>
+        </div>
+      </div>
+      <!-- 결재 tab -->
+      <div class="tab-pane" id="tab-approvals">
+        <div id="approvals-panel"><div style="padding:20px;color:var(--dim);font-size:11px;text-align:center">🔔 대기 중인 결재가 없습니다</div></div>
+      </div>
+      <!-- 연혁 tab -->
+      <div class="tab-pane" id="tab-history">
+        <div id="timeline-bar" style="display:none;padding:6px 8px;border-bottom:1px solid var(--border);flex-shrink:0">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+            <span style="font-size:10px;color:var(--dim)">⏮ 타임라인 리플레이</span>
+            <button onclick="exitTimeline()" style="margin-left:auto;background:none;border:none;color:var(--dim);cursor:pointer;font-size:11px">✕ 종료</button>
+          </div>
+          <input type="range" id="timeline-slider" min="0" max="100" value="100" style="width:100%;accent-color:var(--accent)" oninput="_onTimelineSlide(this.value)">
+          <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--dim)">
+            <span id="tl-start">—</span><span id="tl-current">현재</span><span id="tl-end">현재</span>
+          </div>
+        </div>
+        <div style="padding:4px 8px;display:flex;justify-content:flex-end;gap:4px;flex-shrink:0">
+          <button onclick="saveSnapshot()" style="background:none;border:1px solid #334155;border-radius:5px;color:var(--dim);font-size:10px;padding:3px 8px;cursor:pointer">📸 스냅샷</button>
+          <button onclick="showSnapshots()" style="background:none;border:1px solid #334155;border-radius:5px;color:var(--dim);font-size:10px;padding:3px 8px;cursor:pointer">📂 복원/포크</button>
+          <button onclick="enterTimeline()" style="background:none;border:1px solid #334155;border-radius:5px;color:var(--dim);font-size:10px;padding:3px 8px;cursor:pointer">⏮ 리플레이</button>
+        </div>
+        <div id="history-panel" style="overflow-y:auto;flex:1"><div style="padding:20px;color:var(--dim);font-size:11px;text-align:center">📜 아직 연혁이 없습니다</div></div>
+      </div>
+      <!-- 정기 tab -->
+      <div class="tab-pane" id="tab-recurring">
+        <div style="display:flex;align-items:center;padding:8px 10px;flex-shrink:0;border-bottom:1px solid #1e293b">
+          <div class="panel-title" style="margin:0;font-size:11px">🔄 정기 작업</div>
+        </div>
+        <div id="task-list" style="overflow-y:auto;flex:1;padding:8px 10px"></div>
+      </div>
+      <!-- 결과물 tab -->
+      <div class="tab-pane" id="tab-deliverables">
+        <div style="display:flex;align-items:center;padding:8px 10px;flex-shrink:0;border-bottom:1px solid #1e293b">
+          <div class="panel-title" style="margin:0;font-size:11px">📂 결과물</div>
+        </div>
+        <div id="deliverables-panel" style="overflow-y:auto;flex:1;padding:8px 10px"></div>
+      </div>
+    </div>
   </div>
 
-  <!-- Org Chart Overlay -->
+  <!-- Org Chart Overlay (fullscreen) -->
   <div id="org-chart-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.92);z-index:200;flex-direction:column">
     <div style="display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #1e293b;flex-shrink:0">
       <span style="font-size:14px;font-weight:700;color:#f1f5f9">⛶ 에이전트 조직도</span>
@@ -287,8 +359,15 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     </div>
   </div>
 
-  <!-- Center: Chat panel -->
-  <div class="panel chat-panel">
+  <!-- Right: Chat panel -->
+  <div class="panel chat-panel" style="position:relative">
+    <!-- Init overlay: shown while agents are registering -->
+    <div id="chat-init-overlay" style="display:none;position:absolute;inset:0;background:rgba(10,10,26,0.9);flex-direction:column;align-items:center;justify-content:center;z-index:10;border-radius:12px;gap:12px;text-align:center;padding:20px">
+      <div style="font-size:32px;animation:pulse-border 1.5s infinite">⏳</div>
+      <div style="color:#93c5fd;font-size:13px;font-weight:600" id="init-overlay-text">에이전트 초기화 중...</div>
+      <div class="init-progress-bar"><div class="init-progress-fill" id="init-progress-fill" style="width:0%"></div></div>
+      <div style="color:#64748b;font-size:11px">모든 에이전트 활성화 후 채팅이 가능합니다</div>
+    </div>
     <div class="panel-title" id="chat-title" style="display:flex;align-items:center;gap:6px;cursor:pointer" onclick="activeAgentFilter=null;renderPanels()">💬 소통</div>
     <div class="mentions" id="mentions"></div>
     <div class="chat-messages" id="chat-messages"></div>
@@ -297,61 +376,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
       <input class="chat-input" id="chat-input" data-i18n-ph="chatPlaceholder" placeholder="@멘션으로 에이전트에게 지시" />
       <button onclick="openCrossNudgeModal()" style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:9px 10px;cursor:pointer;font-size:12px;color:#94a3b8;flex-shrink:0" title="타 회사에 아웃소싱">🔗</button>
       <button class="chat-send" id="chat-send" data-i18n="send" onclick="sendChat()">전송</button>
-    </div>
-  </div>
-
-  <!-- Right: Kanban + Recurring Tasks tabs -->
-  <div class="panel">
-    <div class="right-tabs">
-      <button class="right-tab" onclick="switchRightTab('kanban')" data-i18n="tabKanban">📋 대기열</button>
-    <button class="right-tab" onclick="switchRightTab('approvals')" data-i18n="tabApprovals">🔔 승인</button>
-    <button class="right-tab" onclick="switchRightTab('history')" data-i18n="tabHistory">📜 연혁</button>
-    <button class="right-tab" onclick="switchRightTab('recurring')" data-i18n="tabRecurring">🔄 정기</button>
-    <button class="right-tab" onclick="switchRightTab('deliverables')" data-i18n="tabDeliverables">📂 결과물</button>
-    </div>
-    <div class="right-panel-content">
-      <div class="tab-pane" id="tab-kanban">
-        <div class="kanban-wrapper">
-          <div class="kanban-board" id="kanban-board"></div>
-        </div>
-      </div>
-      <!-- Approvals Tab -->
-      <div class="tab-pane active" id="tab-approvals">
-        <div id="approvals-panel"><div style="padding:20px;color:var(--dim);font-size:11px;text-align:center">🔔 대기 중인 결재가 없습니다</div></div>
-      </div>
-      <!-- History Tab -->
-      <div class="tab-pane" id="tab-history">
-        <!-- Timeline Replay Slider -->
-        <div id="timeline-bar" style="display:none;padding:6px 8px;border-bottom:1px solid var(--border);flex-shrink:0">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-            <span style="font-size:10px;color:var(--dim)">⏮ 타임라인 리플레이</span>
-            <button onclick="exitTimeline()" style="margin-left:auto;background:none;border:none;color:var(--dim);cursor:pointer;font-size:11px">✕ 종료</button>
-          </div>
-          <input type="range" id="timeline-slider" min="0" max="100" value="100" style="width:100%;accent-color:var(--accent)" oninput="_onTimelineSlide(this.value)">
-          <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--dim)">
-            <span id="tl-start">—</span><span id="tl-current">현재</span><span id="tl-end">현재</span>
-          </div>
-        </div>
-        <div style="padding:4px 8px;display:flex;justify-content:flex-end;gap:4px">
-          <button onclick="saveSnapshot()" style="background:none;border:1px solid #334155;border-radius:5px;color:var(--dim);font-size:10px;padding:3px 8px;cursor:pointer">📸 스냅샷</button>
-          <button onclick="showSnapshots()" style="background:none;border:1px solid #334155;border-radius:5px;color:var(--dim);font-size:10px;padding:3px 8px;cursor:pointer">📂 복원/포크</button>
-          <button onclick="enterTimeline()" style="background:none;border:1px solid #334155;border-radius:5px;color:var(--dim);font-size:10px;padding:3px 8px;cursor:pointer">⏮ 리플레이</button>
-        </div>
-        <div id="history-panel"><div style="padding:20px;color:var(--dim);font-size:11px;text-align:center">📜 아직 연혁이 없습니다</div></div>
-      </div>
-      <div class="tab-pane" id="tab-recurring">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div class="panel-title" style="margin:0;font-size:11px">🔄 정기 작업</div>
-        </div>
-        <div id="task-list" style="overflow-y:auto;flex:1"></div>
-      </div>
-      <!-- Deliverables Tab -->
-      <div class="tab-pane" id="tab-deliverables">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div class="panel-title" style="margin:0;font-size:11px">📂 결과물</div>
-        </div>
-        <div id="deliverables-panel" style="overflow-y:auto;flex:1"></div>
-      </div>
     </div>
   </div>
 </div>
@@ -512,7 +536,8 @@ const UI = {
 const FLAGS={ko:'🇰🇷',en:'🇺🇸',ja:'🇯🇵',zh:'🇨🇳'};
 let currentLang = localStorage.getItem('hub-lang') || 'ko';
 let companies=[],currentCompany=null,lastChatLen=0;
-let currentRightTab='kanban';
+let currentRightTab='orgchart';
+let currentCenterTab='orgchart';
 let cachedCosts=null;
 let cachedApprovals=[];
 let cachedGoals=[];
@@ -580,7 +605,9 @@ function renderTabs(){
 async function selectCompany(cid){
   currentCompany=cid;lastChatLen=0;renderTabs();
   activeAgentFilter=null;
+  document.getElementById('org-inline-panel').style.display='none';
   await refreshCompany();
+  if(currentCenterTab==='orgchart')setTimeout(renderInlineOrgChart,100);
 }
 
 async function refreshCompany(){
@@ -663,6 +690,8 @@ function renderCompanyUI(c){
     taskHtml=`<div style="color:var(--dim);text-align:center;padding:14px;font-size:10px">정기 작업 없음<br><span style="font-size:9px">채팅에서 "모니터링", "정기적" 등으로 자동 생성</span></div>`;
   }
   document.getElementById('task-list').innerHTML=taskHtml;
+  updateInitOverlay(c.agents);
+  if(currentCenterTab==='orgchart')setTimeout(renderInlineOrgChart,50);
 }
 
 // ─── Goals Rendering ───
@@ -912,19 +941,37 @@ function updateMainHeight(){
   if(apprBanner&&apprBanner.style.display!=='none')main.classList.add('with-approvals');
 }
 
-// ─── Right panel tab switch ───
-function switchRightTab(tab){
+// ─── Center panel tab switch ───
+function switchCenterTab(tab){
+  currentCenterTab=tab;
   currentRightTab=tab;
-  const labelMap={kanban:'대기열',approvals:'결재',history:'연혁',recurring:'정기',deliverables:'결과물'};
-  const target=labelMap[tab]||'';
-  document.querySelectorAll('.right-tab').forEach(el=>{
-    el.classList.toggle('active',el.textContent.includes(target));
+  document.querySelectorAll('.center-tab').forEach(el=>{
+    const onclick=el.getAttribute('onclick')||'';
+    el.classList.toggle('active',onclick.includes(`'${tab}'`));
   });
-  document.getElementById('tab-kanban').classList.toggle('active',tab==='kanban');
-  document.getElementById('tab-approvals').classList.toggle('active',tab==='approvals');
-  document.getElementById('tab-history').classList.toggle('active',tab==='history');
-  document.getElementById('tab-recurring').classList.toggle('active',tab==='recurring');
-  document.getElementById('tab-deliverables').classList.toggle('active',tab==='deliverables');
+  ['orgchart','kanban','approvals','history','recurring','deliverables'].forEach(t=>{
+    const el=document.getElementById('tab-'+t);
+    if(el)el.classList.toggle('active',t===tab);
+  });
+  if(tab==='orgchart')setTimeout(renderInlineOrgChart,50);
+}
+function switchRightTab(tab){switchCenterTab(tab);}
+
+// ─── Chat init overlay ───
+function updateInitOverlay(agents){
+  const overlay=document.getElementById('chat-init-overlay');
+  if(!overlay)return;
+  const registering=(agents||[]).filter(a=>a.status==='registering');
+  if(registering.length>0){
+    const done=agents.length-registering.length,total=agents.length;
+    overlay.style.display='flex';
+    const t=document.getElementById('init-overlay-text');
+    if(t)t.textContent=`에이전트 초기화 중... (${done}/${total} 완료)`;
+    const f=document.getElementById('init-progress-fill');
+    if(f)f.style.width=`${Math.round(done/total*100)}%`;
+  }else{
+    overlay.style.display='none';
+  }
 }
 
 function mdToHtml(text){
@@ -1053,7 +1100,7 @@ function filterAgentChat(agentId,agentName,agentEmoji){
 function renderPanels(){
   const company=companies.find(c=>c.id===currentCompany);
   if(!company)return;
-  renderAgentGraph();
+  if(currentCenterTab==='orgchart')setTimeout(renderInlineOrgChart,50);
   const chatEl=document.getElementById('chat-messages');
   const taskEl=document.getElementById('task-list');
   const titleEl=document.getElementById('chat-title');
@@ -1111,6 +1158,8 @@ function renderPanels(){
 function closeAgentDetail(){}
 
 async function sendChat(){
+  const cur0=companies.find(c=>c.id===currentCompany);
+  if(cur0&&(cur0.agents||[]).some(a=>a.status==='registering')){toast('⏳ 에이전트 초기화 중입니다. 잠시 후 다시 시도해 주세요.');return;}
   const input=document.getElementById('chat-input'),text=input.value.trim();if(!text)return;input.value='';
   let finalText=text;
   if(activeAgentFilter&&!text.toLowerCase().includes('@'+activeAgentFilter.name.toLowerCase())){
@@ -1579,7 +1628,7 @@ function connectSSE(){
     const canAppendIncrementally=!agentsChanged&&!shouldRenderPanels;
     const newMsgs=canAppendIncrementally?chat.slice(lastChatLen):[];
 
-    if(agentsChanged)renderCompanyUI(c);
+    if(agentsChanged){renderCompanyUI(c);}else{updateInitOverlay(c.agents||[]);}
 
     if(canAppendIncrementally&&newMsgs.length>0){
       // Remove oldest if over limit
@@ -1744,6 +1793,121 @@ function closeOrgChart(){
   document.getElementById('org-chart-panel').style.display='none';
 }
 
+// ─── Inline Org Chart (center tab) ───
+function renderInlineOrgChart(){
+  const c=companies.find(x=>x.id===currentCompany);
+  if(!c)return;
+  const svgEl=document.getElementById('org-inline-svg');
+  if(!svgEl)return;
+  svgEl.innerHTML='';
+  const container=svgEl.parentElement;
+  const W=container?container.clientWidth||600:600;
+  const H=container?container.clientHeight||400:400;
+  svgEl.setAttribute('width',W);
+  svgEl.setAttribute('height',H);
+
+  const mentionFreq=_buildMentionEdges(c.chat);
+  const masterNode={id:'__master__',name:'마스터',emoji:'👤',status:'active',isMaster:true,fx:W/2,fy:56};
+  const agentNodes=(c.agents||[]).map(a=>({...a,isMaster:false}));
+  const nodes=[masterNode,...agentNodes];
+
+  const links=[...agentNodes.map(a=>({source:'__master__',target:a.id,weight:1,type:'hierarchy'}))];
+  Object.entries(mentionFreq).forEach(([key,cnt])=>{
+    const [from,to]=key.split('→');
+    if(nodes.find(n=>n.id===from)&&nodes.find(n=>n.id===to))
+      links.push({source:from,target:to,weight:cnt,type:'mention'});
+  });
+
+  const svg=d3.select(svgEl);
+  const g=svg.append('g');
+  svg.call(d3.zoom().scaleExtent([0.3,3]).on('zoom',e=>g.attr('transform',e.transform)));
+
+  const sim=d3.forceSimulation(nodes)
+    .force('link',d3.forceLink(links).id(d=>d.id).distance(d=>d.type==='hierarchy'?110:70))
+    .force('charge',d3.forceManyBody().strength(-280))
+    .force('center',d3.forceCenter(W/2,H*0.55))
+    .force('y',d3.forceY(d=>d.isMaster?56:H*0.55).strength(d=>d.isMaster?1:0.05))
+    .force('collision',d3.forceCollide(38));
+
+  const link=g.append('g').selectAll('line').data(links).join('line')
+    .attr('stroke',d=>d.type==='mention'?'#60a5fa':'#334155')
+    .attr('stroke-width',d=>d.type==='mention'?Math.min(d.weight,4):1.5)
+    .attr('stroke-dasharray',d=>d.type==='mention'?'5,3':'none')
+    .attr('stroke-opacity',0.6);
+
+  const node=g.append('g').selectAll('g').data(nodes).join('g')
+    .attr('cursor','pointer')
+    .on('click',(_,d)=>_inlineOrgChartNodeClick(d))
+    .call(d3.drag()
+      .on('start',(e,d)=>{if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y})
+      .on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y})
+      .on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);if(!d.isMaster){d.fx=null;d.fy=null;}}));
+
+  // Node background circles with gradient effect
+  node.append('circle')
+    .attr('r',d=>d.isMaster?26:20)
+    .attr('fill',d=>d.isMaster?'#1e1b4b':d.status==='working'?'#78350f':d.status==='idle'?'#1e293b':d.status==='registering'?'#1e3a5f':'#0f2744')
+    .attr('stroke',d=>d.isMaster?'#818cf8':d.status==='working'?'#fbbf24':d.status==='active'?'#22c55e':d.status==='registering'?'#3b82f6':'#475569')
+    .attr('stroke-width',d=>d.isMaster?2.5:2);
+
+  node.append('text').text(d=>d.emoji||'🤖')
+    .attr('text-anchor','middle').attr('dominant-baseline','middle')
+    .attr('font-size',d=>d.isMaster?20:16).attr('pointer-events','none');
+
+  node.append('text').text(d=>d.isMaster?'마스터':(d.name||d.id).substring(0,8))
+    .attr('text-anchor','middle').attr('y',d=>d.isMaster?38:32)
+    .attr('fill','#94a3b8').attr('font-size',10).attr('pointer-events','none');
+
+  node.append('text').text(d=>!d.isMaster&&d.status==='registering'?'⏳':!d.isMaster&&d.status==='working'?'🔄':'')
+    .attr('text-anchor','middle').attr('y',d=>d.isMaster?0:44)
+    .attr('font-size',9).attr('pointer-events','none');
+
+  node.filter(d=>d.status==='working').append('circle')
+    .attr('r',d=>d.isMaster?30:24).attr('fill','none')
+    .attr('stroke','#fbbf24').attr('stroke-width',1.5)
+    .attr('stroke-dasharray','4,3').attr('opacity',0.7);
+
+  node.filter(d=>d.status==='registering').append('circle')
+    .attr('r',22).attr('fill','none')
+    .attr('stroke','#3b82f6').attr('stroke-width',1)
+    .attr('stroke-dasharray','3,3').attr('opacity',0.6);
+
+  sim.on('tick',()=>{
+    link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+        .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    node.attr('transform',d=>`translate(${Math.max(30,Math.min(W-30,d.x))},${Math.max(40,Math.min(H-40,d.y))})`);
+  });
+}
+
+async function _inlineOrgChartNodeClick(d){
+  if(d.isMaster)return;
+  const panel=document.getElementById('org-inline-panel');
+  const content=document.getElementById('org-inline-panel-content');
+  panel.style.display='block';
+  content.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:16px">${d.emoji||'🤖'} ${d.name}</span><button onclick="document.getElementById('org-inline-panel').style.display='none'" style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px">✕</button></div><div style="font-size:11px;color:var(--dim);margin-bottom:8px">${d.role||''}</div><div style="font-size:10px;color:var(--dim)">불러오는 중...</div>`;
+  setTimeout(renderInlineOrgChart,50);
+  try{
+    const [inboxRes,standupRes]=await Promise.all([
+      fetch(`/api/inbox/${currentCompany}/${d.id}`),
+      fetch(`/api/standup/${currentCompany}/${d.id}`)
+    ]);
+    const inbox=inboxRes.ok?await inboxRes.text():'';
+    const standup=standupRes.ok?await standupRes.text():'';
+    const statusColor=d.status==='working'?'#fbbf24':d.status==='active'?'#22c55e':'#64748b';
+    const statusLbl=d.status==='working'?'🔄 작업중':d.status==='active'?'🟢 활성':'⏳ 대기';
+    content.innerHTML=`
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:16px">${d.emoji||'🤖'} ${d.name}</span>
+        <button onclick="document.getElementById('org-inline-panel').style.display='none'" style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px">✕</button>
+      </div>
+      <div style="font-size:11px;color:${statusColor};margin-bottom:2px">${statusLbl}</div>
+      <div style="font-size:10px;color:var(--dim);margin-bottom:10px">${d.role||''}</div>
+      ${standup?`<div style="font-size:10px;font-weight:600;color:#94a3b8;margin-bottom:4px">📋 스탠드업</div><div style="font-size:10px;color:var(--text);background:var(--card);border-radius:6px;padding:6px;margin-bottom:10px;white-space:pre-wrap;max-height:120px;overflow-y:auto">${standup.substring(0,400)}</div>`:''}
+      ${inbox?`<div style="font-size:10px;font-weight:600;color:#94a3b8;margin-bottom:4px">📬 받은 메시지</div><div style="font-size:10px;color:var(--text);background:var(--card);border-radius:6px;padding:6px;white-space:pre-wrap;max-height:200px;overflow-y:auto">${inbox.substring(0,600)}</div>`:'<div style="font-size:10px;color:var(--dim)">받은 메시지 없음</div>'}
+    `;
+  }catch(e){content.innerHTML+='<br><div style="color:var(--dim);font-size:10px">로드 실패</div>';}
+}
+
 function _buildMentionEdges(chat){
   const freq={};
   (chat||[]).forEach(m=>{
@@ -1769,7 +1933,7 @@ function renderOrgChart(){
   const mentionFreq=_buildMentionEdges(c.chat);
 
   // Nodes: master + agents
-  const masterNode={id:'__master__',name:'마스터',emoji:'👤',status:'active',isMaster:true};
+  const masterNode={id:'__master__',name:'마스터',emoji:'👤',status:'active',isMaster:true,fx:W/2,fy:60};
   const agentNodes=(c.agents||[]).map(a=>({...a,isMaster:false}));
   const nodes=[masterNode,...agentNodes];
 
@@ -1793,10 +1957,11 @@ function renderOrgChart(){
 
   // Force simulation
   const sim=d3.forceSimulation(nodes)
-    .force('link',d3.forceLink(links).id(d=>d.id).distance(d=>d.type==='hierarchy'?120:80))
-    .force('charge',d3.forceManyBody().strength(-300))
-    .force('center',d3.forceCenter(W/2,H/2))
-    .force('collision',d3.forceCollide(35));
+    .force('link',d3.forceLink(links).id(d=>d.id).distance(d=>d.type==='hierarchy'?130:80))
+    .force('charge',d3.forceManyBody().strength(-320))
+    .force('center',d3.forceCenter(W/2,H*0.55))
+    .force('y',d3.forceY(d=>d.isMaster?60:H*0.55).strength(d=>d.isMaster?1:0.05))
+    .force('collision',d3.forceCollide(38));
 
   // Draw links
   const link=g.append('g').selectAll('line').data(links).join('line')
@@ -1837,7 +2002,7 @@ function renderOrgChart(){
   sim.on('tick',()=>{
     link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
         .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
-    node.attr('transform',d=>`translate(${d.x},${d.y})`);
+    node.attr('transform',d=>`translate(${Math.max(30,Math.min(W-30,d.x))},${Math.max(44,Math.min(H-44,d.y))})`);
   });
 }
 
