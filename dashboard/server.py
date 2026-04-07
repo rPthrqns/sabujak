@@ -2327,7 +2327,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not targets:
             targets = ['CEO']
 
-        msg = {"from": "마스터", "text": text, "time": time_str, "type": "user", "mention": is_mention_msg}
+        parent_id = body.get('parent_id')
+        msg = {"from": "마스터", "text": text, "time": time_str, "type": "user", "mention": is_mention_msg,
+               "parent_id": parent_id}
 
         append_chat(cid, msg, broadcast=False)
         targets_str = ', '.join(f'@{t}' for t in targets)

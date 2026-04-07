@@ -38,9 +38,11 @@ def init_db():
                 msg_type TEXT DEFAULT 'user',
                 mention INTEGER DEFAULT 0,
                 to_field TEXT DEFAULT '',
-                sort_order INTEGER DEFAULT 0
+                sort_order INTEGER DEFAULT 0,
+                parent_id INTEGER DEFAULT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_chat_company ON chat_messages(company_id);
+
             CREATE TABLE IF NOT EXISTS board_tasks (
                 id TEXT PRIMARY KEY,
                 company_id TEXT NOT NULL,
@@ -97,7 +99,12 @@ def init_db():
             CREATE VIRTUAL TABLE IF NOT EXISTS chat_fts
                 USING fts5(text, company_id UNINDEXED, msg_id UNINDEXED, from_field UNINDEXED, time UNINDEXED, content='', contentless_delete=1);
         """)
-        conn.commit()
+        # Add parent_id column if missing (safe migration)
+        try:
+            conn.execute("ALTER TABLE chat_messages ADD COLUMN parent_id INTEGER DEFAULT NULL")
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
         conn.close()
 
 # ─── Company CRUD ───
@@ -262,20 +269,20 @@ def db_get_chat(cid):
             conn.execute("DELETE FROM chat_messages WHERE company_id=? AND id NOT IN (SELECT id FROM chat_messages WHERE company_id=? ORDER BY id DESC LIMIT 200)", (cid, cid))
         rows = conn.execute("SELECT * FROM chat_messages WHERE company_id=? ORDER BY sort_order, id", (cid,)).fetchall()
         conn.close()
-    return [{'from': r['from_field'], 'emoji': r['emoji'], 'text': r['text'],
+    return [{'id': r['id'], 'from': r['from_field'], 'emoji': r['emoji'], 'text': r['text'],
              'time': r['time'], 'type': r['msg_type'], 'mention': bool(r['mention']),
-             'to': r['to_field']} for r in rows]
+             'to': r['to_field'], 'parent_id': r['parent_id']} for r in rows]
 
 def db_add_chat(cid, msg):
     with _lock:
         conn = _conn()
         count = conn.execute("SELECT COUNT(*) FROM chat_messages WHERE company_id=?", (cid,)).fetchone()[0]
         cursor = conn.execute("""INSERT INTO chat_messages
-            (company_id, from_field, emoji, text, time, msg_type, mention, to_field, sort_order)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (company_id, from_field, emoji, text, time, msg_type, mention, to_field, sort_order, parent_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (cid, msg.get('from',''), msg.get('emoji',''), msg.get('text',''),
              msg.get('time',''), msg.get('type','user'),
-             1 if msg.get('mention') else 0, msg.get('to',''), count))
+             1 if msg.get('mention') else 0, msg.get('to',''), count, msg.get('parent_id')))
         msg_id = cursor.lastrowid
         text = msg.get('text','')
         if text:

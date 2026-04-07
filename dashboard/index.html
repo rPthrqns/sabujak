@@ -981,10 +981,14 @@ function appendChat(m){
     i++;
   }
   const normalText=normalLines.join('\n').trim();
+  // Thread indentation for replies
+  const indent=m.parent_id?'margin-left:24px;border-left:2px solid #334155;padding-left:6px;':'';
+  const msgId=m.id?`data-msg-id="${m.id}"`:'';
+  const replyBtn=m.id?`<button onclick="setReplyTo(${m.id},'${(m.from||'').replace(/'/g,"\\'")}')" style="background:none;border:none;color:var(--dim);font-size:9px;cursor:pointer;padding:0 4px;opacity:.6" title="답장">↩</button>`:'';
   // 일반 텍스트가 있으면 일반 버블로
   if(normalText){
     const bodyHtml=mdToHtml(normalText);
-    el.innerHTML+=`<div class="chat-msg ${isUser?'user':'agent'}"><div class="avatar">${avatar}</div><div class="chat-body"><div class="chat-sender">${m.from}</div><div class="chat-bubble">${bodyHtml}</div></div></div>`;
+    el.innerHTML+=`<div class="chat-msg ${isUser?'user':'agent'}" style="${indent}" ${msgId}><div class="avatar">${avatar}</div><div class="chat-body"><div class="chat-sender">${m.from}${replyBtn}</div><div class="chat-bubble">${bodyHtml}</div></div></div>`;
   }
   // 멘션 라인 각각 별도 카드로 (FROM → TO 형식)
   for(const ml of mentionLines){
@@ -1006,6 +1010,32 @@ function appendChat(m){
 }
 
 function insertMention(name){const i=document.getElementById('chat-input');i.value+='@'+name+' ';i.focus()}
+
+// ─── Thread Reply ───
+let _replyToId=null;
+function setReplyTo(msgId, fromName){
+  _replyToId=msgId;
+  const input=document.getElementById('chat-input');
+  input.placeholder=`↩ @${fromName}에게 답장...`;
+  input.focus();
+  // Show reply indicator
+  let ind=document.getElementById('reply-indicator');
+  if(!ind){
+    ind=document.createElement('div');
+    ind.id='reply-indicator';
+    ind.style.cssText='font-size:10px;color:var(--accent);padding:2px 8px;display:flex;align-items:center;gap:6px';
+    input.parentNode.insertBefore(ind,input);
+  }
+  ind.innerHTML=`↩ <strong>@${fromName}</strong>에게 답장 <button onclick="clearReply()" style="background:none;border:none;color:var(--dim);cursor:pointer">✕</button>`;
+}
+function clearReply(){
+  _replyToId=null;
+  const ind=document.getElementById('reply-indicator');
+  if(ind)ind.remove();
+  const input=document.getElementById('chat-input');
+  const ph=currentLang==='en'?'@mention an agent to instruct':'@멘션으로 에이전트에게 지시';
+  input.placeholder=ph;
+}
 
 let activeAgentFilter=null;
 
@@ -1086,7 +1116,10 @@ async function sendChat(){
   }
   document.getElementById('chat-send').disabled=true;
   try{
-    await fetch(`/api/chat/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:finalText})});
+    const payload={text:finalText};
+    if(_replyToId)payload.parent_id=_replyToId;
+    await fetch(`/api/chat/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    clearReply();
     document.getElementById('typing').classList.add('show');
     // 현재까지의 채팅 길이를 기록 → SSE에서 새 메시지만 append
     const cur=companies.find(c=>c.id===currentCompany);
