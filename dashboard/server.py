@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """AI Company Hub - Multi-company Dashboard Server
 Enhanced with Goals, Kanban Board, Cost Tracking, Approval Gates, and Task Dependencies."""
-import hmac, json, os, re, http.server, socketserver, subprocess, threading, time, urllib.request, uuid
+import hmac, json, os, re, http.server, socketserver, subprocess, threading, time, urllib.request, urllib.parse, uuid
 from pathlib import Path
 from datetime import datetime
 from db import (init_db, migrate_from_json, db_get_company, db_save_company, db_update_company,
                db_get_all_companies, db_delete_company, db_add_chat, db_add_chats, db_add_activity, db_add_activities,
                db_add_approval, db_get_approvals, db_update_approval, db_get_tasks, db_add_task, db_update_task, db_delete_task,
+               db_search_chat,
                db_get_doc, db_save_doc, db_clear_doc_cache)
 
 # ─── Constants ───
@@ -1922,6 +1923,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if 'status=pending' in qs:
                     status_filter = 'pending'
             self._json(get_approvals(cid, status_filter))
+        elif self.path.startswith('/api/search'):
+            self._handle_search()
         elif self.path == '/api/agents':
             self._json(AGENT_TEMPLATES)
         elif self.path == '/api/topics':
@@ -1931,6 +1934,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         else:
             if self.path == '/': self.path = '/index.html'
             return super().do_GET()
+
+    def _handle_search(self):
+        """GET /api/search?q=query&cid=... — full-text search across chat messages."""
+        qs = self.path.split('?', 1)[1] if '?' in self.path else ''
+        params = {}
+        for part in qs.split('&'):
+            if '=' in part:
+                k, v = part.split('=', 1)
+                params[k] = urllib.parse.unquote_plus(v)
+        query = params.get('q', '').strip()
+        cid_filter = params.get('cid', '').strip()
+        if not query:
+            self._json({"error": "q required"}, 400); return
+        company_ids = [cid_filter] if cid_filter else None
+        results = db_search_chat(query, company_ids=company_ids, limit=50)
+        # Attach company name for display
+        company_map = {c['id']: c.get('name', c['id']) for c in db_get_all_companies()}
+        for r in results:
+            r['company_name'] = company_map.get(r['company_id'], r['company_id'])
+        self._json(results)
 
     def _handle_sse(self):
         self.send_response(200)

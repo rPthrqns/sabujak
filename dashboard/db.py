@@ -83,6 +83,8 @@ def init_db():
                 updated_at TEXT DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_docs_company ON documents(company_id, doc_type);
+            CREATE VIRTUAL TABLE IF NOT EXISTS chat_fts
+                USING fts5(text, company_id UNINDEXED, msg_id UNINDEXED, from_field UNINDEXED, time UNINDEXED, content='', contentless_delete=1);
         """)
         conn.commit()
         conn.close()
@@ -257,12 +259,20 @@ def db_add_chat(cid, msg):
     with _lock:
         conn = _conn()
         count = conn.execute("SELECT COUNT(*) FROM chat_messages WHERE company_id=?", (cid,)).fetchone()[0]
-        conn.execute("""INSERT INTO chat_messages 
+        cursor = conn.execute("""INSERT INTO chat_messages
             (company_id, from_field, emoji, text, time, msg_type, mention, to_field, sort_order)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (cid, msg.get('from',''), msg.get('emoji',''), msg.get('text',''),
              msg.get('time',''), msg.get('type','user'),
              1 if msg.get('mention') else 0, msg.get('to',''), count))
+        msg_id = cursor.lastrowid
+        text = msg.get('text','')
+        if text:
+            try:
+                conn.execute("INSERT INTO chat_fts(text, company_id, msg_id, from_field, time) VALUES (?,?,?,?,?)",
+                             (text, cid, msg_id, msg.get('from',''), msg.get('time','')))
+            except Exception:
+                pass
         if count >= 200:
             conn.execute("DELETE FROM chat_messages WHERE company_id=? AND id NOT IN (SELECT id FROM chat_messages WHERE company_id=? ORDER BY id DESC LIMIT 200)", (cid, cid))
         conn.commit()
@@ -295,6 +305,68 @@ def _save_chat(conn, cid, messages):
             (cid, m.get('from',''), m.get('emoji',''), m.get('text',''),
              m.get('time',''), m.get('type','user'),
              1 if m.get('mention') else 0, m.get('to',''), i))
+
+# ─── Full-Text Search ───
+
+def db_search_chat(query, company_ids=None, limit=50):
+    """Search chat messages using FTS5. Returns list of dicts with company_id and message fields."""
+    if not query or not query.strip():
+        return []
+    with _lock:
+        conn = _conn()
+        try:
+            # Escape FTS5 special characters
+            safe_query = query.replace('"', '""')
+            if company_ids:
+                placeholders = ','.join('?' * len(company_ids))
+                rows = conn.execute(
+                    f"""SELECT f.company_id, f.msg_id, f.from_field, f.time,
+                               c.emoji, c.text
+                        FROM chat_fts f
+                        JOIN chat_messages c ON c.id = CAST(f.msg_id AS INTEGER)
+                        WHERE chat_fts MATCH ? AND f.company_id IN ({placeholders})
+                        ORDER BY rank LIMIT ?""",
+                    (f'"{safe_query}"', *company_ids, limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT f.company_id, f.msg_id, f.from_field, f.time,
+                              c.emoji, c.text
+                       FROM chat_fts f
+                       JOIN chat_messages c ON c.id = CAST(f.msg_id AS INTEGER)
+                       WHERE chat_fts MATCH ?
+                       ORDER BY rank LIMIT ?""",
+                    (f'"{safe_query}"', limit)
+                ).fetchall()
+            return [{'company_id': r['company_id'], 'msg_id': r['msg_id'],
+                     'from': r['from_field'], 'emoji': r['emoji'],
+                     'text': r['text'], 'time': r['time']} for r in rows]
+        except Exception as e:
+            print(f"[search] FTS error: {e}")
+            # Fallback: LIKE search
+            try:
+                if company_ids:
+                    placeholders = ','.join('?' * len(company_ids))
+                    rows = conn.execute(
+                        f"""SELECT company_id, id as msg_id, from_field, time, emoji, text
+                            FROM chat_messages WHERE text LIKE ? AND company_id IN ({placeholders})
+                            ORDER BY id DESC LIMIT ?""",
+                        (f'%{query}%', *company_ids, limit)
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """SELECT company_id, id as msg_id, from_field, time, emoji, text
+                           FROM chat_messages WHERE text LIKE ? ORDER BY id DESC LIMIT ?""",
+                        (f'%{query}%', limit)
+                    ).fetchall()
+                return [{'company_id': r['company_id'], 'msg_id': r['msg_id'],
+                         'from': r['from_field'], 'emoji': r['emoji'],
+                         'text': r['text'], 'time': r['time']} for r in rows]
+            except Exception as e2:
+                print(f"[search] fallback error: {e2}")
+                return []
+        finally:
+            conn.close()
 
 # ─── Board Tasks ───
 
