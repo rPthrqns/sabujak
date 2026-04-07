@@ -61,6 +61,10 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .agent-card{background:var(--card);border-radius:8px;padding:9px;margin-bottom:5px;transition:all .15s;border-left:3px solid #4b5563;cursor:pointer}
 .agent-card:hover{background:#253047;transform:translateX(2px)}
 .agent-card.active{border-left-color:var(--green)}.agent-card.working{border-left-color:var(--yellow)}.agent-card.idle{opacity:.5}.agent-card.registering{border-left-color:var(--accent);opacity:.6;animation:pulse-border 1.5s infinite}
+.agent-live-bar{margin-top:4px;font-size:9px;color:#fcd34d;display:flex;align-items:center;gap:5px}
+.agent-live-bar .live-timer{font-variant-numeric:tabular-nums;min-width:28px}
+.agent-watchdog{height:3px;background:#374151;border-radius:2px;margin-top:3px;overflow:hidden}
+.agent-watchdog-fill{height:100%;border-radius:2px;transition:width 1s linear;background:linear-gradient(90deg,#22c55e,#eab308,#ef4444)}
 .agent-top{display:flex;align-items:center;gap:6px}
 .agent-emoji{font-size:16px}.agent-name{font-size:12px;font-weight:600;color:#f1f5f9}
 .agent-role{font-size:9px;color:var(--dim);margin-top:1px}
@@ -407,6 +411,14 @@ let cachedApprovals=[];
 let cachedGoals=[];
 let cachedBoardTasks=[];
 let cachedDeliverables=[];
+// Live monitor: tracks agents currently processing
+const agentThinking={};  // { "cid:aid": { startedAt, promptPreview, timerId } }
+let _liveMonitorInterval=null;
+// Notification permission
+if(typeof Notification!=='undefined'&&Notification.permission==='default'){
+  Notification.requestPermission();
+}
+let _prevApprovalIds=new Set();
 
 function t(k){return (UI[currentLang]||UI.ko)[k]||k}
 
@@ -517,7 +529,11 @@ function renderCompanyUI(c){
     const costData=a.cost||{};
     const costVal=costData.total_cost||0;
     const costHtml=costVal>0?`<div class="agent-cost">💰 <span class="cost-val">$${costVal.toFixed(4)}</span></div>`:'';
-    return `<div class="agent-card ${cls}" style="${dis};cursor:pointer;${border}" onclick="filterAgentChat('${a.id}','${a.name}','${a.emoji}')"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span><span class="agent-tag ${cls}" style="margin-left:auto">${lbl}</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();reactivateAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="재활성화">🔄</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();deleteAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="삭제">✕</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span></div>${costHtml}${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
+    // Live monitor bar for working agents
+    const thinkKey=`${currentCompany}:${a.id}`;
+    const thinking=agentThinking[thinkKey];
+    const liveHtml=thinking?`<div class="agent-live-bar">⚡ <span class="live-timer" id="lt-${a.id}">0s</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;color:#94a3b8">${thinking.promptPreview||''}</span></div><div class="agent-watchdog"><div class="agent-watchdog-fill" id="wd-${a.id}" style="width:0%"></div></div>`:'';
+    return `<div class="agent-card ${cls}" style="${dis};cursor:pointer;${border}" onclick="filterAgentChat('${a.id}','${a.name}','${a.emoji}')"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span><span class="agent-tag ${cls}" style="margin-left:auto">${lbl}</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();reactivateAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="재활성화">🔄</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();deleteAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="삭제">✕</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span></div>${costHtml}${liveHtml}${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
   }).join('');
   // Recurring tasks (right tab)
   const allTasks=c.agents.flatMap(a=>(a.tasks||[]).map(t=>({...t,agent:a})));
@@ -724,6 +740,7 @@ function renderDeliverables(){
 }
 
 function renderApprovals(){
+  _updateApprovalBadge();
   const banner=document.getElementById('approval-banner');
   const panel=document.getElementById('approvals-panel');
   if(!cachedApprovals||!cachedApprovals.length){
@@ -743,7 +760,7 @@ function renderApprovals(){
     let phtml='<div style="padding:6px 0">';
     cachedApprovals.forEach(a=>{
       const time=a.time?new Date(a.time).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'';
-      phtml+=`<div style="background:var(--card);border-radius:8px;padding:8px 10px;margin-bottom:6px;border-left:3px solid var(--yellow)"><div style="font-size:10px;color:var(--dim);margin-bottom:2px">${a.from_agent||''} ${a.from_emoji||''} · ${time}</div><div style="font-size:11px;font-weight:600;color:#fcd34d;margin-bottom:4px">${a.type||'요청'}</div><div style="font-size:11px;color:var(--text);margin-bottom:6px;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-word">${a.detail||''}</div><textarea id="apr-${a.id}" placeholder="답변이나 필요한 정보를 입력하세요..." style="width:100%;box-sizing:border-box;background:var(--bg);color:var(--text);border:1px solid #374151;border-radius:4px;padding:6px 8px;font-size:11px;resize:vertical;min-height:36px;margin-bottom:4px;font-family:inherit"></textarea><div style="display:flex;gap:4px"><button onclick="resolveApproval('${a.id}','approved')" style="background:#064e3b;color:#6ee7b7;border:none;padding:4px 12px;border-radius:4px;font-size:10px;cursor:pointer">✅ 제출</button><button onclick="resolveApproval('${a.id}','rejected')" style="background:#7f1d1d;color:#fca5a5;border:none;padding:4px 12px;border-radius:4px;font-size:10px;cursor:pointer">❌ 반려</button></div></div>`;
+      phtml+=`<div style="background:var(--card);border-radius:8px;padding:8px 10px;margin-bottom:6px;border-left:3px solid var(--yellow)"><div style="font-size:10px;color:var(--dim);margin-bottom:2px">${a.from_agent||''} ${a.from_emoji||''} · ${time}</div><div style="font-size:11px;font-weight:600;color:#fcd34d;margin-bottom:4px">${a.type||'요청'}</div><div style="font-size:9px;color:var(--dim);margin-bottom:2px">📝 계획 내용 (수정 가능)</div><textarea id="plan-${a.id}" style="width:100%;box-sizing:border-box;background:#0f172a;color:var(--text);border:1px solid #4b5563;border-radius:4px;padding:6px 8px;font-size:11px;resize:vertical;min-height:80px;margin-bottom:4px;font-family:inherit;white-space:pre-wrap">${(a.detail||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea><textarea id="apr-${a.id}" placeholder="추가 지시사항 (선택)..." style="width:100%;box-sizing:border-box;background:var(--bg);color:var(--text);border:1px solid #374151;border-radius:4px;padding:6px 8px;font-size:11px;resize:vertical;min-height:32px;margin-bottom:4px;font-family:inherit"></textarea><div style="display:flex;gap:4px"><button onclick="resolveApproval('${a.id}','approved')" style="background:#064e3b;color:#6ee7b7;border:none;padding:4px 12px;border-radius:4px;font-size:10px;cursor:pointer">✅ 승인·전달</button><button onclick="resolveApproval('${a.id}','rejected')" style="background:#7f1d1d;color:#fca5a5;border:none;padding:4px 12px;border-radius:4px;font-size:10px;cursor:pointer">❌ 반려</button></div></div>`;
     });
     phtml+='</div>';
     panel.innerHTML=phtml;
@@ -753,8 +770,17 @@ function renderApprovals(){
 
 async function resolveApproval(aprId,resolution){
   try{
-    const response=document.getElementById('apr-'+aprId);
-    const responseText=response?response.value.trim():'';
+    const planEl=document.getElementById('plan-'+aprId);
+    const responseEl=document.getElementById('apr-'+aprId);
+    const editedPlan=planEl?planEl.value.trim():'';
+    const extraNote=responseEl?responseEl.value.trim():'';
+    // Combine edited plan + extra note into response sent to agent
+    let responseText='';
+    if(resolution==='approved'){
+      responseText=editedPlan?`[수정된 계획]\n${editedPlan}${extraNote?'\n\n[추가 지시]\n'+extraNote:''}`:extraNote;
+    }else{
+      responseText=extraNote;
+    }
     const res=await fetch(`/api/approval-${resolution==='approved'?'approve':'reject'}/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({approval_id:aprId,response:responseText})});
     const data=await res.json();
     if(data.ok){
@@ -1126,6 +1152,46 @@ function connectSSE(){
     renderTabs();
     syncCurrentCompanyChatLen();
   });
+  es.addEventListener('agent_thinking',e=>{
+    const d=JSON.parse(e.data);
+    const key=`${d.cid}:${d.agent_id}`;
+    agentThinking[key]={startedAt:d.started_at,promptPreview:(d.prompt_preview||'').substring(0,40)};
+    if(!_liveMonitorInterval){
+      _liveMonitorInterval=setInterval(_updateLiveTimers,1000);
+    }
+    // Re-render agent cards to show live bar
+    const c=companies.find(x=>x.id===d.cid);
+    if(c&&d.cid===currentCompany)renderCompanyUI(c);
+  });
+  es.addEventListener('agent_done',e=>{
+    const d=JSON.parse(e.data);
+    const key=`${d.cid}:${d.agent_id}`;
+    delete agentThinking[key];
+    if(Object.keys(agentThinking).length===0){
+      clearInterval(_liveMonitorInterval);
+      _liveMonitorInterval=null;
+    }
+  });
+  es.addEventListener('approval',e=>{
+    const d=JSON.parse(e.data);
+    const apr=d.approval;
+    if(!apr)return;
+    // Browser notification for new approval
+    if(!_prevApprovalIds.has(apr.id)){
+      _prevApprovalIds.add(apr.id);
+      if(typeof Notification!=='undefined'&&Notification.permission==='granted'){
+        new Notification('⚠️ 결재 요청',{body:(apr.detail||apr.type||'').substring(0,80),icon:'/favicon.ico'});
+      }
+    }
+    // Refresh approvals
+    if(currentCompany){
+      fetch(`/api/approvals/${currentCompany}?status=pending`).then(r=>r.json()).then(data=>{
+        cachedApprovals=data;
+        renderApprovals();
+        _updateApprovalBadge();
+      }).catch(()=>{});
+    }
+  });
   es.addEventListener('company_update',e=>{
     const data=JSON.parse(e.data);
     if(!data.company||!data.id)return;
@@ -1178,6 +1244,31 @@ function connectSSE(){
   };
 }
 connectSSE();
+
+function _updateLiveTimers(){
+  const now=Date.now()/1000;
+  Object.entries(agentThinking).forEach(([key,info])=>{
+    const [cid,aid]=key.split(':');
+    if(cid!==currentCompany)return;
+    const elapsed=Math.floor(now-info.startedAt);
+    const timerEl=document.getElementById(`lt-${aid}`);
+    const wdEl=document.getElementById(`wd-${aid}`);
+    if(timerEl)timerEl.textContent=`${elapsed}s`;
+    if(wdEl){
+      const pct=Math.min(elapsed/90*100,100);
+      wdEl.style.width=pct+'%';
+      // Color shifts: green→yellow→red via CSS gradient, but also warn if >80s
+      if(elapsed>=80)wdEl.style.background='#ef4444';
+      else if(elapsed>=50)wdEl.style.background='#eab308';
+      else wdEl.style.background='#22c55e';
+    }
+  });
+}
+
+function _updateApprovalBadge(){
+  const count=cachedApprovals.filter(a=>a.status==='pending'||!a.status).length;
+  document.title=count>0?`[${count}] AI Company Hub`:'AI Company Hub';
+}
 
 function renderAgentGraph(){
   const svg=document.getElementById('agent-graph');
