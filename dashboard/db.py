@@ -291,8 +291,8 @@ def db_get_tasks(cid):
         conn.close()
     return [{'id': r['id'], 'title': r['title'], 'agent_id': r['agent_id'],
              'status': r['status'], 'depends_on': json.loads(r['depends_on']),
-             'deadline': r['deadline'], 'created_at': r.get('created_at',''),
-             'updated_at': r.get('updated_at','')} for r in rows]
+             'deadline': r['deadline'], 'created_at': r['created_at'] or '',
+             'updated_at': r['updated_at'] or ''} for r in rows]
 
 def db_add_task(cid, task):
     with _lock:
