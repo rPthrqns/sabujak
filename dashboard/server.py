@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """AI Company Hub - Multi-company Dashboard Server
 Enhanced with Goals, Kanban Board, Cost Tracking, Approval Gates, and Task Dependencies."""
-import hmac, json, os, re, http.server, socketserver, subprocess, threading, time, urllib.request, urllib.parse, uuid
+import asyncio, hmac, json, os, re, http.server, socketserver, subprocess, threading, time, urllib.request, urllib.parse, uuid
 from pathlib import Path
 from datetime import datetime
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parent))
 from runtime import get_runtime
+
+# FastAPI / async server stack
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 from db import (init_db, migrate_from_json, db_get_company, db_save_company, db_update_company,
                db_get_all_companies, db_delete_company, db_add_chat, db_add_chats, db_add_activity, db_add_activities,
                db_add_approval, db_get_approvals, db_update_approval, db_get_tasks, db_add_task, db_update_task, db_delete_task,
@@ -19,8 +26,11 @@ PORT = 3000
 BASE = Path(__file__).resolve().parent.parent
 DATA = BASE / "data"
 COMPANIES_FILE = DATA / "companies.json"
-SSE_CLIENTS = []
+SSE_CLIENTS = []          # kept for backward compat reference; not used by FastAPI SSE
 SSE_LOCK = threading.Lock()
+SSE_QUEUES: list = []     # asyncio.Queue per SSE client
+SSE_QUEUES_LOCK = threading.Lock()
+_EVENT_LOOP: asyncio.AbstractEventLoop | None = None
 AGENT_LOCK = threading.Lock()
 _COMPANY_LOCKS = {}
 _COMPANY_LOCKS_MUTEX = threading.Lock()
@@ -112,18 +122,20 @@ COST_PER_1K_TOKENS = 0.003  # rough estimate for cost calculation
 # ─── Utility Functions ───
 
 def sse_broadcast(event_type, data):
-    """Broadcast SSE event to all connected clients."""
+    """Broadcast SSE event to all connected clients (thread-safe)."""
     msg = f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-    with SSE_LOCK:
+    with SSE_QUEUES_LOCK:
         dead = []
-        for wfile in SSE_CLIENTS:
+        for q in SSE_QUEUES:
             try:
-                wfile.write(msg.encode())
-                wfile.flush()
-            except (BrokenPipeError, OSError, ConnectionResetError):
-                dead.append(wfile)
-        for w in dead:
-            SSE_CLIENTS.remove(w)
+                if _EVENT_LOOP is not None and _EVENT_LOOP.is_running():
+                    _EVENT_LOOP.call_soon_threadsafe(q.put_nowait, msg)
+                else:
+                    q.put_nowait(msg)
+            except Exception:
+                dead.append(q)
+        for q in dead:
+            SSE_QUEUES.remove(q)
 
 import re
 
@@ -2850,6 +2862,384 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         else:
             self._json({"error": "not found"}, 404)
 
+# ─── FastAPI App ───────────────────────────────────────────────────────────
+#
+# _CallContext lets us reuse the existing Handler._handle_* methods without
+# rewriting them. FastAPI routes create a ctx, bind Handler's unbound methods
+# to it, call them, and return ctx._result.
+# ───────────────────────────────────────────────────────────────────────────
+
+class _CallContext:
+    """Minimal fake 'self' that captures _json() calls from Handler methods."""
+    _result = None
+    _status = 200
+
+    def __init__(self, path: str = '', headers: dict | None = None):
+        self.path = path
+        self.headers = headers or {}
+
+    def _json(self, data, code: int = 200):
+        self._result = data
+        self._status = code
+
+    def _cors(self):
+        pass
+
+
+def _call(method_fn, path: str, *args, headers: dict | None = None):
+    """Call an unbound Handler method via _CallContext and return (data, status)."""
+    ctx = _CallContext(path, headers)
+    method_fn(ctx, path, *args)
+    return ctx._result or {"ok": True}, ctx._status
+
+
+app = FastAPI(title="AI Company Hub")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+# ── Startup: capture the event loop for thread-safe SSE broadcasts ──
+
+@app.on_event("startup")
+async def _on_startup():
+    global _EVENT_LOOP
+    _EVENT_LOOP = asyncio.get_running_loop()
+
+# ── SSE ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/sse")
+async def api_sse():
+    q: asyncio.Queue = asyncio.Queue()
+    with SSE_QUEUES_LOCK:
+        SSE_QUEUES.append(q)
+
+    async def _generate():
+        companies = await asyncio.to_thread(db_get_all_companies)
+        yield f"event: init\ndata: {json.dumps(companies, ensure_ascii=False)}\n\n"
+        try:
+            while True:
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=30)
+                    yield msg
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            with SSE_QUEUES_LOCK:
+                if q in SSE_QUEUES:
+                    SSE_QUEUES.remove(q)
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
+                 "X-Accel-Buffering": "no"},
+    )
+
+# ── GET routes ─────────────────────────────────────────────────────────────
+
+@app.get("/api/companies")
+def api_get_companies():
+    return db_get_all_companies()
+
+@app.get("/api/company/{cid}")
+def api_get_company(cid: str):
+    company = get_company(cid)
+    if company:
+        return company
+    raise HTTPException(status_code=404, detail="not found")
+
+@app.get("/api/newspaper/{cid}")
+def api_get_newspaper(cid: str):
+    return {"newspaper": generate_newspaper(cid)}
+
+@app.get("/api/inbox/{cid}/{agent_id}")
+def api_get_inbox(cid: str, agent_id: str):
+    return {"inbox": read_agent_inbox(cid, agent_id)}
+
+@app.get("/api/task-list/{cid}")
+def api_get_task_list(cid: str):
+    return get_recurring_tasks(cid)
+
+@app.get("/api/file/{file_path:path}")
+def api_get_file(file_path: str):
+    from urllib.parse import unquote
+    file_path = unquote(file_path)
+    parts = file_path.split('/', 1)
+    if len(parts) < 2:
+        raise HTTPException(status_code=404, detail="file not found")
+    cid, file_rel = parts[0], parts[1]
+    try:
+        allowed_base = (DATA / cid).resolve()
+        fp = (DATA / cid / file_rel).resolve()
+        if not str(fp).startswith(str(allowed_base) + os.sep):
+            raise HTTPException(status_code=403, detail="forbidden")
+        if fp.exists() and fp.is_file():
+            return PlainTextResponse(fp.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as e:
+        print(f"[WARN] file read error: {e}")
+    raise HTTPException(status_code=404, detail="file not found")
+
+@app.get("/api/costs/{cid}")
+def api_get_costs(cid: str):
+    costs = get_company_costs(cid)
+    if costs:
+        return costs
+    raise HTTPException(status_code=404, detail="not found")
+
+@app.get("/api/goals/{cid}")
+def api_get_goals(cid: str):
+    return get_goals(cid)
+
+@app.get("/api/board-tasks/{cid}")
+def api_get_board_tasks(cid: str):
+    return get_board_tasks(cid)
+
+@app.get("/api/deliverables/{cid}")
+def api_get_deliverables(cid: str):
+    shared_dir = DATA / cid / '_shared' / 'deliverables'
+    files = []
+    if shared_dir.exists():
+        for f in sorted(shared_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+            if f.is_file() and not f.name.startswith('.'):
+                size = f.stat().st_size
+                mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime('%m-%d %H:%M')
+                files.append({'path': f'_shared/deliverables/{f.name}', 'size': size, 'modified': mtime})
+    return files[:50]
+
+@app.get("/api/approvals/{cid}")
+def api_get_approvals(cid: str, status: str | None = None):
+    return get_approvals(cid, status if status else None)
+
+@app.get("/api/search")
+def api_search(q: str | None = None, cid: str | None = None):
+    if not q or not q.strip():
+        raise HTTPException(status_code=400, detail="q required")
+    company_ids = [cid] if cid else None
+    results = db_search_chat(q, company_ids=company_ids, limit=50)
+    company_map = {c['id']: c.get('name', c['id']) for c in db_get_all_companies()}
+    for r in results:
+        r['company_name'] = company_map.get(r['company_id'], r['company_id'])
+    return results
+
+@app.get("/api/ab-result/{test_id}")
+def api_ab_result(test_id: str):
+    return _AB_RESULTS.get(test_id, {"status": "not_found"})
+
+@app.get("/api/webhook-routes/{cid}")
+def api_get_webhook_routes(cid: str):
+    return db_get_webhook_routes(cid)
+
+@app.get("/api/snapshots/{cid}")
+def api_get_snapshots(cid: str):
+    return db_get_snapshots(cid)
+
+@app.get("/api/agents")
+def api_get_agents():
+    return AGENT_TEMPLATES
+
+@app.get("/api/topics")
+def api_get_topics():
+    return TOPIC_ORGS
+
+@app.get("/api/langs")
+def api_get_langs():
+    return LANG
+
+# ── POST routes ────────────────────────────────────────────────────────────
+
+@app.post("/api/companies")
+async def api_create_company(request: Request):
+    body = await request.json()
+    name = body.get('name', '').strip()
+    if not name or len(name) > 100:
+        raise HTTPException(status_code=400, detail="name must be 1-100 characters")
+    lang = body.get('lang', 'ko')
+    if lang not in LANG:
+        lang = 'ko'
+    company = create_company(name, body.get('topic', ''), lang)
+    return {"ok": True, "company": company}
+
+@app.post("/api/company/delete")
+async def api_delete_company(request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_company_delete, '/api/company/delete', body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/chat/{cid}")
+async def api_chat(cid: str, request: Request):
+    body = await request.json()
+    path = f"/api/chat/{cid}"
+    data, code = _call(Handler._handle_chat, path, body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/agent-msg/{cid}")
+async def api_agent_msg(cid: str, request: Request):
+    body = await request.json()
+    path = f"/api/agent-msg/{cid}"
+    data, code = _call(Handler._handle_agent_msg, path, body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/agent-add/{cid}")
+async def api_agent_add(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_agent_add, f"/api/agent-add/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/agent-delete/{cid}/{aid}")
+async def api_agent_delete(cid: str, aid: str):
+    data, code = _call(Handler._handle_agent_delete, f"/api/agent-delete/{cid}/{aid}")
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/agent-reactivate/{cid}/{aid}")
+async def api_agent_reactivate(cid: str, aid: str):
+    data, code = _call(Handler._handle_agent_reactivate, f"/api/agent-reactivate/{cid}/{aid}")
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/task-add/{cid}")
+async def api_task_add(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_task_add, f"/api/task-add/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/task-pause/{cid}/{task_id}")
+def api_task_pause(cid: str, task_id: str):
+    update_task_status(cid, task_id, 'paused')
+    _running_task_threads.discard(f"{cid}:{task_id}")
+    return {"ok": True}
+
+@app.post("/api/task-resume/{cid}/{task_id}")
+def api_task_resume(cid: str, task_id: str):
+    update_task_status(cid, task_id, 'resumed')
+    return {"ok": True}
+
+@app.post("/api/task-stop/{cid}/{task_id}")
+def api_task_stop(cid: str, task_id: str):
+    update_task_status(cid, task_id, 'stopped')
+    _running_task_threads.discard(f"{cid}:{task_id}")
+    return {"ok": True}
+
+@app.post("/api/task-delete/{cid}/{task_id}")
+async def api_task_delete(cid: str, task_id: str):
+    data, code = _call(Handler._handle_task_delete, f"/api/task-delete/{cid}/{task_id}")
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/goal-add/{cid}")
+async def api_goal_add(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_goal_add, f"/api/goal-add/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/goal-update/{cid}")
+async def api_goal_update(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_goal_update, f"/api/goal-update/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/goal-delete/{cid}")
+async def api_goal_delete(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_goal_delete, f"/api/goal-delete/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/board-task-add/{cid}")
+async def api_board_task_add(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_board_task_add, f"/api/board-task-add/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/task-status/{cid}/{task_id}")
+async def api_task_status(cid: str, task_id: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_task_status, f"/api/task-status/{cid}/{task_id}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/board-task-delete/{cid}")
+async def api_board_task_delete(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_board_task_delete, f"/api/board-task-delete/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/approval-approve/{cid}")
+async def api_approval_approve(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_approval_resolve, f"/api/approval-approve/{cid}", body, 'approved')
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/approval-reject/{cid}")
+async def api_approval_reject(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_approval_resolve, f"/api/approval-reject/{cid}", body, 'rejected')
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/webhook/{cid}")
+async def api_webhook(cid: str, request: Request):
+    body = await request.json()
+    raw_headers = dict(request.headers)
+    data, code = _call(Handler._handle_webhook, f"/api/webhook/{cid}", body, headers=raw_headers)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/cross-nudge")
+async def api_cross_nudge(request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_cross_nudge, "/api/cross-nudge", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/ab-test/{cid}")
+async def api_ab_test(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_ab_test, f"/api/ab-test/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/webhook-route-add/{cid}")
+async def api_webhook_route_add(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_webhook_route_add, f"/api/webhook-route-add/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/webhook-route-delete/{cid}")
+async def api_webhook_route_delete(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_webhook_route_delete, f"/api/webhook-route-delete/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/snapshot/{cid}")
+async def api_snapshot(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_snapshot, f"/api/snapshot/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/fork/{snap_id}")
+async def api_fork(snap_id: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_fork, f"/api/fork/{snap_id}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/restore/{cid}/{snap_id}")
+async def api_restore(cid: str, snap_id: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_restore, f"/api/restore/{cid}/{snap_id}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/meeting/{cid}")
+async def api_meeting(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_meeting, f"/api/meeting/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/daily-report/{cid}")
+async def api_daily_report(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_daily_report, f"/api/daily-report/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+# ── Static files (must be last — catches everything else) ──────────────────
+
+app.mount("/", StaticFiles(directory=str(BASE / "dashboard"), html=True), name="static")
+
 # ─── Server Setup ───
 
 class ReusableTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -2990,5 +3380,4 @@ def _cron_scheduler():
 
 threading.Thread(target=_cron_scheduler, daemon=True).start()
 
-with ReusableTCPServer(("", PORT), Handler) as httpd:
-    httpd.serve_forever()
+uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
