@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AI Company Hub</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#0a0a1a;--panel:#111827;--card:#1e293b;--border:#1e3a5f;--text:#e0e0e0;--dim:#64748b;--accent:#3b82f6;--accent2:#8b5cf6;--green:#00ff88;--yellow:#fbbf24;--red:#ef4444}
@@ -61,6 +62,10 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .agent-card{background:var(--card);border-radius:8px;padding:9px;margin-bottom:5px;transition:all .15s;border-left:3px solid #4b5563;cursor:pointer}
 .agent-card:hover{background:#253047;transform:translateX(2px)}
 .agent-card.active{border-left-color:var(--green)}.agent-card.working{border-left-color:var(--yellow)}.agent-card.idle{opacity:.5}.agent-card.registering{border-left-color:var(--accent);opacity:.6;animation:pulse-border 1.5s infinite}
+.agent-live-bar{margin-top:4px;font-size:9px;color:#fcd34d;display:flex;align-items:center;gap:5px}
+.agent-live-bar .live-timer{font-variant-numeric:tabular-nums;min-width:28px}
+.agent-watchdog{height:3px;background:#374151;border-radius:2px;margin-top:3px;overflow:hidden}
+.agent-watchdog-fill{height:100%;border-radius:2px;transition:width 1s linear;background:linear-gradient(90deg,#22c55e,#eab308,#ef4444)}
 .agent-top{display:flex;align-items:center;gap:6px}
 .agent-emoji{font-size:16px}.agent-name{font-size:12px;font-weight:600;color:#f1f5f9}
 .agent-role{font-size:9px;color:var(--dim);margin-top:1px}
@@ -216,7 +221,13 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 
 <div class="toolbar" id="toolbar">
   <div class="company-tabs" id="company-tabs"></div>
-  <button class="create-btn" data-i18n="createBtn" onclick="openModal()">＋ 새 회사</button>
+  <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+    <div style="position:relative">
+      <input id="global-search" placeholder="🔍 채팅 검색..." style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:5px 10px;color:var(--text);font-size:11px;width:160px;outline:none" oninput="_debounceSearch(this.value)" onkeydown="if(event.key==='Escape')_closeSearch()">
+      <div id="search-results" style="display:none;position:absolute;top:calc(100%+4px);right:0;width:360px;background:#111827;border:1px solid #334155;border-radius:8px;z-index:150;max-height:400px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.5)"></div>
+    </div>
+    <button class="create-btn" data-i18n="createBtn" onclick="openModal()">＋ 새 회사</button>
+  </div>
 </div>
 
 <!-- Approval Banner (shown when pending approvals exist) -->
@@ -240,6 +251,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
       <button class="add-agent-btn" onclick="openAgentModal()" title="에이전트 추가">＋</button>
     </div>
     <div id="org-list" style="overflow-y:auto;flex:1"></div>
+    <div style="display:flex;gap:4px;margin-top:6px;flex-shrink:0">
+      <button onclick="openMeetingModal()" style="flex:1;background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:5px 4px;font-size:10px;cursor:pointer" title="회의 시작">🏛️ 회의</button>
+      <button onclick="startDailyReport()" style="flex:1;background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:5px 4px;font-size:10px;cursor:pointer" title="데일리 리포트 설정">📊 데일리</button>
+      <button onclick="openAbModal()" style="flex:1;background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:5px 4px;font-size:10px;cursor:pointer" title="A/B 에이전트 테스트">🧪 A/B</button>
+    </div>
     <div class="cost-footer" id="cost-footer" style="display:none">
       <span>💰 비용</span>
       <span class="cost-total" id="total-cost" style="color:#f87171">$0.00</span>
@@ -253,6 +269,22 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   <!-- Center: Agent Node Graph -->
   <div class="panel" style="position:relative;min-height:80px;border-bottom:1px solid var(--border)">
     <svg id="agent-graph" width="100%" height="80" style="display:block"></svg>
+    <button onclick="openOrgChart()" style="position:absolute;top:4px;right:6px;background:rgba(30,41,59,.85);border:1px solid #334155;border-radius:5px;color:#94a3b8;font-size:10px;padding:2px 7px;cursor:pointer" title="조직도 전체 보기">⛶ 조직도</button>
+  </div>
+
+  <!-- Org Chart Overlay -->
+  <div id="org-chart-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.92);z-index:200;flex-direction:column">
+    <div style="display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #1e293b;flex-shrink:0">
+      <span style="font-size:14px;font-weight:700;color:#f1f5f9">⛶ 에이전트 조직도</span>
+      <span style="margin-left:8px;font-size:11px;color:var(--dim)">노드 클릭 → 상세 정보</span>
+      <button onclick="closeOrgChart()" style="margin-left:auto;background:#334155;border:none;border-radius:6px;color:#f1f5f9;padding:5px 14px;cursor:pointer;font-size:12px">✕ 닫기</button>
+    </div>
+    <div style="display:flex;flex:1;overflow:hidden">
+      <svg id="org-chart-svg" style="flex:1"></svg>
+      <div id="org-chart-panel" style="width:280px;background:#0f172a;border-left:1px solid #1e293b;padding:14px;overflow-y:auto;display:none">
+        <div id="org-chart-panel-content"></div>
+      </div>
+    </div>
   </div>
 
   <!-- Center: Chat panel -->
@@ -263,6 +295,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     <div class="typing" id="typing"><div class="td"><span></span><span></span><span></span></div> <span id="typing-who">...</span></div>
     <div class="chat-input-area">
       <input class="chat-input" id="chat-input" data-i18n-ph="chatPlaceholder" placeholder="@멘션으로 에이전트에게 지시" />
+      <button onclick="openCrossNudgeModal()" style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:9px 10px;cursor:pointer;font-size:12px;color:#94a3b8;flex-shrink:0" title="타 회사에 아웃소싱">🔗</button>
       <button class="chat-send" id="chat-send" data-i18n="send" onclick="sendChat()">전송</button>
     </div>
   </div>
@@ -288,6 +321,22 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
       </div>
       <!-- History Tab -->
       <div class="tab-pane" id="tab-history">
+        <!-- Timeline Replay Slider -->
+        <div id="timeline-bar" style="display:none;padding:6px 8px;border-bottom:1px solid var(--border);flex-shrink:0">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+            <span style="font-size:10px;color:var(--dim)">⏮ 타임라인 리플레이</span>
+            <button onclick="exitTimeline()" style="margin-left:auto;background:none;border:none;color:var(--dim);cursor:pointer;font-size:11px">✕ 종료</button>
+          </div>
+          <input type="range" id="timeline-slider" min="0" max="100" value="100" style="width:100%;accent-color:var(--accent)" oninput="_onTimelineSlide(this.value)">
+          <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--dim)">
+            <span id="tl-start">—</span><span id="tl-current">현재</span><span id="tl-end">현재</span>
+          </div>
+        </div>
+        <div style="padding:4px 8px;display:flex;justify-content:flex-end;gap:4px">
+          <button onclick="saveSnapshot()" style="background:none;border:1px solid #334155;border-radius:5px;color:var(--dim);font-size:10px;padding:3px 8px;cursor:pointer">📸 스냅샷</button>
+          <button onclick="showSnapshots()" style="background:none;border:1px solid #334155;border-radius:5px;color:var(--dim);font-size:10px;padding:3px 8px;cursor:pointer">📂 복원/포크</button>
+          <button onclick="enterTimeline()" style="background:none;border:1px solid #334155;border-radius:5px;color:var(--dim);font-size:10px;padding:3px 8px;cursor:pointer">⏮ 리플레이</button>
+        </div>
         <div id="history-panel"><div style="padding:20px;color:var(--dim);font-size:11px;text-align:center">📜 아직 연혁이 없습니다</div></div>
       </div>
       <div class="tab-pane" id="tab-recurring">
@@ -384,9 +433,71 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
       <option value="720">12시간마다</option>
       <option value="1440">매일</option>
     </select>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:4px">
+      <span>Cron 표현식 (선택)</span>
+      <span style="font-size:9px;color:var(--dim)">비워두면 위 주기 사용</span>
+    </label>
+    <input id="t-cron" placeholder="예: 0 9 * * 1-5 (평일 오전 9시)" style="font-family:monospace;font-size:11px" />
     <div class="modal-actions">
       <button class="modal-cancel" onclick="closeTaskModal()">취소</button>
       <button class="modal-submit" id="btn-task" onclick="addTask()"><span>생성</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- A/B Test Modal -->
+<div class="modal-overlay" id="ab-modal">
+  <div class="modal" style="max-width:520px">
+    <h2>🧪 A/B 에이전트 테스트</h2>
+    <label>테스트 지시문</label>
+    <textarea id="ab-text" style="width:100%;background:var(--card);border:1px solid #374151;border-radius:8px;padding:9px 12px;color:var(--text);font-size:12px;outline:none;resize:vertical;min-height:70px" placeholder="예: 신규 고객 유치 전략을 제안해주세요"></textarea>
+    <label>비교할 에이전트 (2명 이상)</label>
+    <div id="ab-agents" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closeAbModal()">취소</button>
+      <button class="modal-submit" onclick="startAbTest()">🧪 테스트 시작</button>
+    </div>
+  </div>
+</div>
+<!-- A/B Test Result Overlay -->
+<div id="ab-result-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.92);z-index:200;flex-direction:column">
+  <div style="display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #1e293b;flex-shrink:0">
+    <span style="font-size:14px;font-weight:700;color:#f1f5f9">🧪 A/B 테스트 결과</span>
+    <span id="ab-status-label" style="margin-left:8px;font-size:11px;color:#fbbf24">⏳ 실행 중...</span>
+    <button onclick="closeAbResult()" style="margin-left:auto;background:#334155;border:none;border-radius:6px;color:#f1f5f9;padding:5px 14px;cursor:pointer;font-size:12px">✕ 닫기</button>
+  </div>
+  <div style="padding:10px 14px;font-size:11px;color:var(--dim);flex-shrink:0" id="ab-prompt-display"></div>
+  <div id="ab-result-cols" style="display:flex;flex:1;overflow:hidden;gap:1px;background:#1e293b"></div>
+</div>
+
+<!-- Cross-Nudge (Outsourcing) Modal -->
+<div class="modal-overlay" id="cross-nudge-modal">
+  <div class="modal">
+    <h2>🔗 타 회사 아웃소싱</h2>
+    <label>의뢰할 회사</label>
+    <select id="cn-to-cid" style="width:100%;background:var(--card);border:1px solid #374151;border-radius:8px;padding:9px 12px;color:var(--text);font-size:13px;outline:none"></select>
+    <label>대상 에이전트 (비워두면 자동 선택)</label>
+    <input id="cn-to-agent" placeholder="예: CEO, CTO (선택사항)" />
+    <label>의뢰 내용</label>
+    <textarea id="cn-text" style="width:100%;background:var(--card);border:1px solid #374151;border-radius:8px;padding:9px 12px;color:var(--text);font-size:12px;outline:none;resize:vertical;min-height:80px" placeholder="예: 랜딩페이지 카피 작성 부탁드립니다"></textarea>
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closeCrossNudgeModal()">취소</button>
+      <button class="modal-submit" onclick="sendCrossNudge()">🔗 의뢰 전송</button>
+    </div>
+  </div>
+</div>
+
+<!-- Meeting Modal -->
+<div class="modal-overlay" id="meeting-modal">
+  <div class="modal">
+    <h2>🏛️ 회의 시작</h2>
+    <label>회의 주제</label>
+    <input id="m-topic" placeholder="예: Q2 마케팅 전략 수립" />
+    <label>참석자 선택</label>
+    <div id="m-agents" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closeMeetingModal()">취소</button>
+      <button class="modal-submit" onclick="startMeeting()">🏛️ 회의 시작</button>
     </div>
   </div>
 </div>
@@ -407,6 +518,14 @@ let cachedApprovals=[];
 let cachedGoals=[];
 let cachedBoardTasks=[];
 let cachedDeliverables=[];
+// Live monitor: tracks agents currently processing
+const agentThinking={};  // { "cid:aid": { startedAt, promptPreview, timerId } }
+let _liveMonitorInterval=null;
+// Notification permission
+if(typeof Notification!=='undefined'&&Notification.permission==='default'){
+  Notification.requestPermission();
+}
+let _prevApprovalIds=new Set();
 
 function t(k){return (UI[currentLang]||UI.ko)[k]||k}
 
@@ -517,7 +636,11 @@ function renderCompanyUI(c){
     const costData=a.cost||{};
     const costVal=costData.total_cost||0;
     const costHtml=costVal>0?`<div class="agent-cost">💰 <span class="cost-val">$${costVal.toFixed(4)}</span></div>`:'';
-    return `<div class="agent-card ${cls}" style="${dis};cursor:pointer;${border}" onclick="filterAgentChat('${a.id}','${a.name}','${a.emoji}')"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span><span class="agent-tag ${cls}" style="margin-left:auto">${lbl}</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();reactivateAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="재활성화">🔄</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();deleteAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="삭제">✕</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span></div>${costHtml}${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
+    // Live monitor bar for working agents
+    const thinkKey=`${currentCompany}:${a.id}`;
+    const thinking=agentThinking[thinkKey];
+    const liveHtml=thinking?`<div class="agent-live-bar">⚡ <span class="live-timer" id="lt-${a.id}">0s</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;color:#94a3b8">${thinking.promptPreview||''}</span></div><div class="agent-watchdog"><div class="agent-watchdog-fill" id="wd-${a.id}" style="width:0%"></div></div>`:'';
+    return `<div class="agent-card ${cls}" style="${dis};cursor:pointer;${border}" onclick="filterAgentChat('${a.id}','${a.name}','${a.emoji}')"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span><span class="agent-tag ${cls}" style="margin-left:auto">${lbl}</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();reactivateAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="재활성화">🔄</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();deleteAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="삭제">✕</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span></div>${costHtml}${liveHtml}${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
   }).join('');
   // Recurring tasks (right tab)
   const allTasks=c.agents.flatMap(a=>(a.tasks||[]).map(t=>({...t,agent:a})));
@@ -724,6 +847,7 @@ function renderDeliverables(){
 }
 
 function renderApprovals(){
+  _updateApprovalBadge();
   const banner=document.getElementById('approval-banner');
   const panel=document.getElementById('approvals-panel');
   if(!cachedApprovals||!cachedApprovals.length){
@@ -743,7 +867,7 @@ function renderApprovals(){
     let phtml='<div style="padding:6px 0">';
     cachedApprovals.forEach(a=>{
       const time=a.time?new Date(a.time).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'';
-      phtml+=`<div style="background:var(--card);border-radius:8px;padding:8px 10px;margin-bottom:6px;border-left:3px solid var(--yellow)"><div style="font-size:10px;color:var(--dim);margin-bottom:2px">${a.from_agent||''} ${a.from_emoji||''} · ${time}</div><div style="font-size:11px;font-weight:600;color:#fcd34d;margin-bottom:4px">${a.type||'요청'}</div><div style="font-size:11px;color:var(--text);margin-bottom:6px;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-word">${a.detail||''}</div><textarea id="apr-${a.id}" placeholder="답변이나 필요한 정보를 입력하세요..." style="width:100%;box-sizing:border-box;background:var(--bg);color:var(--text);border:1px solid #374151;border-radius:4px;padding:6px 8px;font-size:11px;resize:vertical;min-height:36px;margin-bottom:4px;font-family:inherit"></textarea><div style="display:flex;gap:4px"><button onclick="resolveApproval('${a.id}','approved')" style="background:#064e3b;color:#6ee7b7;border:none;padding:4px 12px;border-radius:4px;font-size:10px;cursor:pointer">✅ 제출</button><button onclick="resolveApproval('${a.id}','rejected')" style="background:#7f1d1d;color:#fca5a5;border:none;padding:4px 12px;border-radius:4px;font-size:10px;cursor:pointer">❌ 반려</button></div></div>`;
+      phtml+=`<div style="background:var(--card);border-radius:8px;padding:8px 10px;margin-bottom:6px;border-left:3px solid var(--yellow)"><div style="font-size:10px;color:var(--dim);margin-bottom:2px">${a.from_agent||''} ${a.from_emoji||''} · ${time}</div><div style="font-size:11px;font-weight:600;color:#fcd34d;margin-bottom:4px">${a.type||'요청'}</div><div style="font-size:9px;color:var(--dim);margin-bottom:2px">📝 계획 내용 (수정 가능)</div><textarea id="plan-${a.id}" style="width:100%;box-sizing:border-box;background:#0f172a;color:var(--text);border:1px solid #4b5563;border-radius:4px;padding:6px 8px;font-size:11px;resize:vertical;min-height:80px;margin-bottom:4px;font-family:inherit;white-space:pre-wrap">${(a.detail||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea><textarea id="apr-${a.id}" placeholder="추가 지시사항 (선택)..." style="width:100%;box-sizing:border-box;background:var(--bg);color:var(--text);border:1px solid #374151;border-radius:4px;padding:6px 8px;font-size:11px;resize:vertical;min-height:32px;margin-bottom:4px;font-family:inherit"></textarea><div style="display:flex;gap:4px"><button onclick="resolveApproval('${a.id}','approved')" style="background:#064e3b;color:#6ee7b7;border:none;padding:4px 12px;border-radius:4px;font-size:10px;cursor:pointer">✅ 승인·전달</button><button onclick="resolveApproval('${a.id}','rejected')" style="background:#7f1d1d;color:#fca5a5;border:none;padding:4px 12px;border-radius:4px;font-size:10px;cursor:pointer">❌ 반려</button></div></div>`;
     });
     phtml+='</div>';
     panel.innerHTML=phtml;
@@ -753,8 +877,17 @@ function renderApprovals(){
 
 async function resolveApproval(aprId,resolution){
   try{
-    const response=document.getElementById('apr-'+aprId);
-    const responseText=response?response.value.trim():'';
+    const planEl=document.getElementById('plan-'+aprId);
+    const responseEl=document.getElementById('apr-'+aprId);
+    const editedPlan=planEl?planEl.value.trim():'';
+    const extraNote=responseEl?responseEl.value.trim():'';
+    // Combine edited plan + extra note into response sent to agent
+    let responseText='';
+    if(resolution==='approved'){
+      responseText=editedPlan?`[수정된 계획]\n${editedPlan}${extraNote?'\n\n[추가 지시]\n'+extraNote:''}`:extraNote;
+    }else{
+      responseText=extraNote;
+    }
     const res=await fetch(`/api/approval-${resolution==='approved'?'approve':'reject'}/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({approval_id:aprId,response:responseText})});
     const data=await res.json();
     if(data.ok){
@@ -850,10 +983,14 @@ function appendChat(m){
     i++;
   }
   const normalText=normalLines.join('\n').trim();
+  // Thread indentation for replies
+  const indent=m.parent_id?'margin-left:24px;border-left:2px solid #334155;padding-left:6px;':'';
+  const msgId=m.id?`data-msg-id="${m.id}"`:'';
+  const replyBtn=m.id?`<button onclick="setReplyTo(${m.id},'${(m.from||'').replace(/'/g,"\\'")}')" style="background:none;border:none;color:var(--dim);font-size:9px;cursor:pointer;padding:0 4px;opacity:.6" title="답장">↩</button>`:'';
   // 일반 텍스트가 있으면 일반 버블로
   if(normalText){
     const bodyHtml=mdToHtml(normalText);
-    el.innerHTML+=`<div class="chat-msg ${isUser?'user':'agent'}"><div class="avatar">${avatar}</div><div class="chat-body"><div class="chat-sender">${m.from}</div><div class="chat-bubble">${bodyHtml}</div></div></div>`;
+    el.innerHTML+=`<div class="chat-msg ${isUser?'user':'agent'}" style="${indent}" ${msgId}><div class="avatar">${avatar}</div><div class="chat-body"><div class="chat-sender">${m.from}${replyBtn}</div><div class="chat-bubble">${bodyHtml}</div></div></div>`;
   }
   // 멘션 라인 각각 별도 카드로 (FROM → TO 형식)
   for(const ml of mentionLines){
@@ -875,6 +1012,32 @@ function appendChat(m){
 }
 
 function insertMention(name){const i=document.getElementById('chat-input');i.value+='@'+name+' ';i.focus()}
+
+// ─── Thread Reply ───
+let _replyToId=null;
+function setReplyTo(msgId, fromName){
+  _replyToId=msgId;
+  const input=document.getElementById('chat-input');
+  input.placeholder=`↩ @${fromName}에게 답장...`;
+  input.focus();
+  // Show reply indicator
+  let ind=document.getElementById('reply-indicator');
+  if(!ind){
+    ind=document.createElement('div');
+    ind.id='reply-indicator';
+    ind.style.cssText='font-size:10px;color:var(--accent);padding:2px 8px;display:flex;align-items:center;gap:6px';
+    input.parentNode.insertBefore(ind,input);
+  }
+  ind.innerHTML=`↩ <strong>@${fromName}</strong>에게 답장 <button onclick="clearReply()" style="background:none;border:none;color:var(--dim);cursor:pointer">✕</button>`;
+}
+function clearReply(){
+  _replyToId=null;
+  const ind=document.getElementById('reply-indicator');
+  if(ind)ind.remove();
+  const input=document.getElementById('chat-input');
+  const ph=currentLang==='en'?'@mention an agent to instruct':'@멘션으로 에이전트에게 지시';
+  input.placeholder=ph;
+}
 
 let activeAgentFilter=null;
 
@@ -955,7 +1118,10 @@ async function sendChat(){
   }
   document.getElementById('chat-send').disabled=true;
   try{
-    await fetch(`/api/chat/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:finalText})});
+    const payload={text:finalText};
+    if(_replyToId)payload.parent_id=_replyToId;
+    await fetch(`/api/chat/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    clearReply();
     document.getElementById('typing').classList.add('show');
     // 현재까지의 채팅 길이를 기록 → SSE에서 새 메시지만 append
     const cur=companies.find(c=>c.id===currentCompany);
@@ -1053,6 +1219,139 @@ function openTaskModal(){
 }
 function closeTaskModal(){document.getElementById('task-modal').classList.remove('show')}
 
+function openMeetingModal(){
+  if(!currentCompany)return;
+  const c=companies.find(x=>x.id===currentCompany);
+  if(!c)return;
+  const agentsDiv=document.getElementById('m-agents');
+  agentsDiv.innerHTML=(c.agents||[]).map(a=>
+    `<label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;background:var(--card);border:1px solid #374151;border-radius:6px;padding:4px 8px"><input type="checkbox" value="${a.id}" checked style="accent-color:var(--accent)">${a.emoji} ${a.name}</label>`
+  ).join('');
+  document.getElementById('m-topic').value='';
+  document.getElementById('meeting-modal').classList.add('show');
+}
+function closeMeetingModal(){document.getElementById('meeting-modal').classList.remove('show')}
+async function startMeeting(){
+  const topic=document.getElementById('m-topic').value.trim();
+  if(!topic){toast('회의 주제를 입력하세요');return;}
+  const checked=[...document.querySelectorAll('#m-agents input:checked')].map(el=>el.value);
+  if(!checked.length){toast('참석자를 선택하세요');return;}
+  closeMeetingModal();
+  try{
+    const res=await fetch(`/api/meeting/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic,agents:checked})});
+    const data=await res.json();
+    if(data.ok)toast(`🏛️ 회의 시작: ${topic} (${data.participants}명 참석)`);
+    else toast('회의 시작 실패');
+  }catch(e){toast('오류: '+e.message)}
+}
+async function startDailyReport(){
+  if(!currentCompany)return;
+  try{
+    const res=await fetch(`/api/daily-report/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    const data=await res.json();
+    if(data.ok)toast('📊 데일리 리포트 설정 완료 (매일 자동 실행)');
+    else toast('설정 실패');
+  }catch(e){toast('오류: '+e.message)}
+}
+
+// ─── A/B Test ───
+let _currentAbTestId=null;
+let _abPollInterval=null;
+function openAbModal(){
+  if(!currentCompany)return;
+  const c=companies.find(x=>x.id===currentCompany);
+  if(!c)return;
+  document.getElementById('ab-text').value='';
+  document.getElementById('ab-agents').innerHTML=(c.agents||[]).map(a=>
+    `<label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;background:var(--card);border:1px solid #374151;border-radius:6px;padding:4px 8px"><input type="checkbox" value="${a.id}" style="accent-color:var(--accent)">${a.emoji} ${a.name}</label>`
+  ).join('');
+  document.getElementById('ab-modal').classList.add('show');
+}
+function closeAbModal(){document.getElementById('ab-modal').classList.remove('show')}
+function closeAbResult(){
+  document.getElementById('ab-result-overlay').style.display='none';
+  clearInterval(_abPollInterval);_abPollInterval=null;
+}
+async function startAbTest(){
+  const text=document.getElementById('ab-text').value.trim();
+  const agents=[...document.querySelectorAll('#ab-agents input:checked')].map(e=>e.value);
+  if(!text){toast('지시문을 입력하세요');return;}
+  if(agents.length<2){toast('에이전트를 2명 이상 선택하세요');return;}
+  closeAbModal();
+  try{
+    const res=await fetch(`/api/ab-test/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,agents})});
+    const data=await res.json();
+    if(!data.ok){toast('A/B 테스트 실패');return;}
+    _currentAbTestId=data.test_id;
+    _showAbResult(text,agents);
+    _abPollInterval=setInterval(()=>_pollAbResult(),3000);
+  }catch(e){toast('오류: '+e.message)}
+}
+function _showAbResult(text,agentIds){
+  const overlay=document.getElementById('ab-result-overlay');
+  overlay.style.display='flex';
+  document.getElementById('ab-prompt-display').textContent='📋 '+text;
+  document.getElementById('ab-status-label').textContent='⏳ 실행 중...';
+  const c=companies.find(x=>x.id===currentCompany);
+  const cols=document.getElementById('ab-result-cols');
+  cols.innerHTML=agentIds.map(aid=>{
+    const a=(c?.agents||[]).find(x=>x.id===aid)||{id:aid,name:aid,emoji:'🤖'};
+    return `<div id="ab-col-${aid}" style="flex:1;background:#0f172a;padding:14px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:13px;font-weight:700">${a.emoji} ${a.name}</div>
+      <div id="ab-status-${aid}" style="font-size:10px;color:#fbbf24">⏳ 생각 중...</div>
+      <div id="ab-response-${aid}" style="font-size:11px;color:var(--text);white-space:pre-wrap;flex:1"></div>
+      <div id="ab-meta-${aid}" style="font-size:10px;color:var(--dim)"></div>
+    </div>`;
+  }).join('');
+}
+async function _pollAbResult(){
+  if(!_currentAbTestId)return;
+  try{
+    const res=await fetch(`/api/ab-result/${_currentAbTestId}`);
+    const data=await res.json();
+    (data.agents||[]).forEach(a=>{
+      const statusEl=document.getElementById(`ab-status-${a.agent_id}`);
+      const respEl=document.getElementById(`ab-response-${a.agent_id}`);
+      const metaEl=document.getElementById(`ab-meta-${a.agent_id}`);
+      if(statusEl)statusEl.textContent=a.status==='done'?'✅ 완료':a.status==='error'?'❌ 오류':'⏳ 생각 중...';
+      if(respEl&&a.response)respEl.textContent=a.response;
+      if(metaEl&&a.elapsed)metaEl.textContent=`⏱️ ${a.elapsed}s · ~${a.tokens||0} tokens`;
+    });
+    if(data.status==='done'){
+      document.getElementById('ab-status-label').textContent='✅ 완료';
+      clearInterval(_abPollInterval);_abPollInterval=null;
+    }
+  }catch(e){console.warn('ab poll error',e)}
+}
+
+function openCrossNudgeModal(){
+  if(!currentCompany)return;
+  const sel=document.getElementById('cn-to-cid');
+  sel.innerHTML=companies.filter(c=>c.id!==currentCompany).map(c=>
+    `<option value="${c.id}">${c.name||c.id}</option>`
+  ).join('');
+  if(!sel.options.length){toast('다른 회사가 없습니다');return;}
+  document.getElementById('cn-text').value='';
+  document.getElementById('cn-to-agent').value='';
+  document.getElementById('cross-nudge-modal').classList.add('show');
+}
+function closeCrossNudgeModal(){document.getElementById('cross-nudge-modal').classList.remove('show')}
+async function sendCrossNudge(){
+  const toCid=document.getElementById('cn-to-cid').value;
+  const toAgent=document.getElementById('cn-to-agent').value.trim();
+  const text=document.getElementById('cn-text').value.trim();
+  if(!text){toast('의뢰 내용을 입력하세요');return;}
+  closeCrossNudgeModal();
+  try{
+    const fromAgent=(companies.find(c=>c.id===currentCompany)?.agents||[])[0]?.id||'ceo';
+    const res=await fetch('/api/cross-nudge',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({from_cid:currentCompany,to_cid:toCid,from_agent:fromAgent,to_agent:toAgent,text})});
+    const data=await res.json();
+    if(data.ok)toast(`🔗 ${data.to}에 아웃소싱 의뢰 전송 완료`);
+    else toast('전송 실패: '+(data.error||''));
+  }catch(e){toast('오류: '+e.message)}
+}
+
 async function addTask(){
   const agent_id=document.getElementById('t-agent').value;
   const title=document.getElementById('t-title').value.trim();
@@ -1061,7 +1360,8 @@ async function addTask(){
   if(!title||!prompt){alert('제목과 프롬프트를 입력하세요');return}
   const btn=document.getElementById('btn-task');btn.classList.add('loading');
   try{
-    const res=await fetch(`/api/task-add/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,prompt,interval_minutes:interval,agent_id})});
+    const cron=document.getElementById('t-cron').value.trim();
+  const res=await fetch(`/api/task-add/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,prompt,interval_minutes:interval,agent_id,cron_expression:cron})});
     const data=await res.json();
     if(data.ok){toast(`🔄 "${title}" 작업이 생성되었습니다`);closeTaskModal();document.getElementById('t-title').value='';document.getElementById('t-prompt').value='';refreshCompany()}
     else toast('작업 생성 실패')
@@ -1106,6 +1406,94 @@ function renderHistory(){
   panel.innerHTML=html;
 }
 
+// ─── Snapshot / Fork / Restore ───
+async function saveSnapshot(){
+  if(!currentCompany)return;
+  const label=prompt('스냅샷 이름을 입력하세요:',new Date().toLocaleString('ko-KR'));
+  if(!label)return;
+  try{
+    const res=await fetch(`/api/snapshot/${currentCompany}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({label})});
+    const data=await res.json();
+    if(data.ok)toast(`📸 스냅샷 저장: "${data.label}"`);
+    else toast('스냅샷 저장 실패');
+  }catch(e){toast('오류: '+e.message)}
+}
+async function showSnapshots(){
+  if(!currentCompany)return;
+  try{
+    const res=await fetch(`/api/snapshots/${currentCompany}`);
+    const snaps=await res.json();
+    if(!snaps.length){toast('저장된 스냅샷이 없습니다');return;}
+    const choices=snaps.map((s,i)=>`${i+1}. ${s.label} (${new Date(s.created_at).toLocaleString('ko-KR')})`).join('\n');
+    const idxStr=prompt(`스냅샷 선택 (번호 입력):\n${choices}\n\n작업 선택: 번호 뒤에 'f'=포크, 'r'=복원 (예: 1f, 2r)`);
+    if(!idxStr)return;
+    const match=idxStr.trim().match(/^(\d+)([fr]?)$/i);
+    if(!match){toast('잘못된 입력');return;}
+    const snap=snaps[parseInt(match[1])-1];
+    if(!snap){toast('없는 번호');return;}
+    const action=(match[2]||'r').toLowerCase();
+    if(action==='f'){
+      const name=prompt('포크할 회사 이름:',snap.label+' (포크)');
+      if(!name)return;
+      const r=await fetch(`/api/fork/${snap.id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+      const d=await r.json();
+      if(d.ok)toast(`🔀 포크 생성: "${d.name}"`);
+    }else{
+      if(!confirm(`"${snap.label}" 상태로 복원하시겠습니까? 현재 데이터가 덮어씌워집니다.`))return;
+      const r=await fetch(`/api/restore/${currentCompany}/${snap.id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+      const d=await r.json();
+      if(d.ok)toast(`⏪ 복원 완료: "${d.restored_to}"`);
+    }
+  }catch(e){toast('오류: '+e.message)}
+}
+
+// ─── Timeline Replay ───
+let _timelineMode=false;
+let _allChatTimes=[];
+function enterTimeline(){
+  if(!currentCompany)return;
+  const c=companies.find(x=>x.id===currentCompany);
+  if(!c||!(c.chat||[]).length){toast('채팅 기록이 없습니다');return;}
+  _timelineMode=true;
+  // Collect sorted timestamps
+  _allChatTimes=(c.chat||[]).map((m,i)=>({idx:i,time:m.time||''}))
+    .filter(x=>x.time).sort((a,b)=>a.time.localeCompare(b.time));
+  const bar=document.getElementById('timeline-bar');
+  bar.style.display='block';
+  const slider=document.getElementById('timeline-slider');
+  slider.max=_allChatTimes.length-1;
+  slider.value=_allChatTimes.length-1;
+  if(_allChatTimes.length){
+    const fmt=t=>new Date(t).toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+    document.getElementById('tl-start').textContent=fmt(_allChatTimes[0].time);
+    document.getElementById('tl-end').textContent=fmt(_allChatTimes[_allChatTimes.length-1].time);
+  }
+  _onTimelineSlide(slider.value);
+}
+function exitTimeline(){
+  _timelineMode=false;
+  document.getElementById('timeline-bar').style.display='none';
+  // Restore full chat
+  const c=companies.find(x=>x.id===currentCompany);
+  if(c)_renderTimelineChat(c.chat||[]);
+}
+function _onTimelineSlide(val){
+  const c=companies.find(x=>x.id===currentCompany);
+  if(!c||!_allChatTimes.length)return;
+  const idx=parseInt(val);
+  const cutoff=_allChatTimes[idx]?.time||'';
+  const label=cutoff?new Date(cutoff).toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'현재';
+  document.getElementById('tl-current').textContent=label;
+  const filtered=(c.chat||[]).filter(m=>!m.time||m.time<=cutoff);
+  _renderTimelineChat(filtered);
+}
+function _renderTimelineChat(msgs){
+  const chatEl=document.getElementById('chat-messages');
+  chatEl.innerHTML='';
+  msgs.forEach(m=>appendChat(m));
+  chatEl.scrollTop=chatEl.scrollHeight;
+}
+
 let sseReconnectTimer=null;
 function syncCurrentCompanyChatLen(){
   if(!currentCompany)return;
@@ -1125,6 +1513,50 @@ function connectSSE(){
     companies=data;
     renderTabs();
     syncCurrentCompanyChatLen();
+  });
+  es.addEventListener('ab_done',e=>{
+    const d=JSON.parse(e.data);
+    if(d.test_id===_currentAbTestId){_pollAbResult();}
+  });
+  es.addEventListener('agent_thinking',e=>{
+    const d=JSON.parse(e.data);
+    const key=`${d.cid}:${d.agent_id}`;
+    agentThinking[key]={startedAt:d.started_at,promptPreview:(d.prompt_preview||'').substring(0,40)};
+    if(!_liveMonitorInterval){
+      _liveMonitorInterval=setInterval(_updateLiveTimers,1000);
+    }
+    // Re-render agent cards to show live bar
+    const c=companies.find(x=>x.id===d.cid);
+    if(c&&d.cid===currentCompany)renderCompanyUI(c);
+  });
+  es.addEventListener('agent_done',e=>{
+    const d=JSON.parse(e.data);
+    const key=`${d.cid}:${d.agent_id}`;
+    delete agentThinking[key];
+    if(Object.keys(agentThinking).length===0){
+      clearInterval(_liveMonitorInterval);
+      _liveMonitorInterval=null;
+    }
+  });
+  es.addEventListener('approval',e=>{
+    const d=JSON.parse(e.data);
+    const apr=d.approval;
+    if(!apr)return;
+    // Browser notification for new approval
+    if(!_prevApprovalIds.has(apr.id)){
+      _prevApprovalIds.add(apr.id);
+      if(typeof Notification!=='undefined'&&Notification.permission==='granted'){
+        new Notification('⚠️ 결재 요청',{body:(apr.detail||apr.type||'').substring(0,80),icon:'/favicon.ico'});
+      }
+    }
+    // Refresh approvals
+    if(currentCompany){
+      fetch(`/api/approvals/${currentCompany}?status=pending`).then(r=>r.json()).then(data=>{
+        cachedApprovals=data;
+        renderApprovals();
+        _updateApprovalBadge();
+      }).catch(()=>{});
+    }
   });
   es.addEventListener('company_update',e=>{
     const data=JSON.parse(e.data);
@@ -1179,6 +1611,31 @@ function connectSSE(){
 }
 connectSSE();
 
+function _updateLiveTimers(){
+  const now=Date.now()/1000;
+  Object.entries(agentThinking).forEach(([key,info])=>{
+    const [cid,aid]=key.split(':');
+    if(cid!==currentCompany)return;
+    const elapsed=Math.floor(now-info.startedAt);
+    const timerEl=document.getElementById(`lt-${aid}`);
+    const wdEl=document.getElementById(`wd-${aid}`);
+    if(timerEl)timerEl.textContent=`${elapsed}s`;
+    if(wdEl){
+      const pct=Math.min(elapsed/90*100,100);
+      wdEl.style.width=pct+'%';
+      // Color shifts: green→yellow→red via CSS gradient, but also warn if >80s
+      if(elapsed>=80)wdEl.style.background='#ef4444';
+      else if(elapsed>=50)wdEl.style.background='#eab308';
+      else wdEl.style.background='#22c55e';
+    }
+  });
+}
+
+function _updateApprovalBadge(){
+  const count=cachedApprovals.filter(a=>a.status==='pending'||!a.status).length;
+  document.title=count>0?`[${count}] AI Company Hub`:'AI Company Hub';
+}
+
 function renderAgentGraph(){
   const svg=document.getElementById('agent-graph');
   if(!svg||!currentCompany)return;
@@ -1225,6 +1682,191 @@ function renderAgentGraph(){
 }
 const agentBusy={};
 const recentMentions=[];
+
+// ─── Global Chat Search ───
+let _searchTimer=null;
+function _debounceSearch(q){
+  clearTimeout(_searchTimer);
+  if(!q||q.length<2){_closeSearch();return;}
+  _searchTimer=setTimeout(()=>_doSearch(q),350);
+}
+function _closeSearch(){
+  document.getElementById('search-results').style.display='none';
+}
+async function _doSearch(q){
+  const el=document.getElementById('search-results');
+  el.style.display='block';
+  el.innerHTML='<div style="padding:10px;font-size:11px;color:var(--dim)">검색 중...</div>';
+  try{
+    const res=await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+    const data=await res.json();
+    if(!data.length){el.innerHTML='<div style="padding:10px;font-size:11px;color:var(--dim)">결과 없음</div>';return;}
+    el.innerHTML=data.map(r=>{
+      const highlight=r.text.replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),m=>`<mark style="background:#1e40af;color:#bfdbfe;border-radius:2px">${m}</mark>`);
+      const t=r.time?new Date(r.time).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'';
+      return `<div onclick="_jumpToMessage('${r.company_id}','${r.msg_id}')" style="padding:8px 12px;border-bottom:1px solid #1e293b;cursor:pointer;transition:background .1s" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background=''">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+          <span style="font-size:10px;background:#1e3a5f;color:#93c5fd;padding:2px 6px;border-radius:4px">${r.company_name||r.company_id}</span>
+          <span style="font-size:10px;color:var(--dim)">${r.emoji||''} ${r.from||''}</span>
+          <span style="font-size:9px;color:var(--dim);margin-left:auto">${t}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text);white-space:pre-wrap;word-break:break-word;max-height:60px;overflow:hidden">${highlight.substring(0,200)}</div>
+      </div>`;
+    }).join('');
+  }catch(e){el.innerHTML=`<div style="padding:10px;font-size:11px;color:var(--red)">오류: ${e.message}</div>`;}
+}
+function _jumpToMessage(cid,msgId){
+  _closeSearch();
+  document.getElementById('global-search').value='';
+  selectCompany(cid);
+  // Scroll to message after company loads
+  setTimeout(()=>{
+    const chatEl=document.getElementById('chat-messages');
+    const msgs=[...chatEl.querySelectorAll('.msg')];
+    // Find by msg data-id or just scroll to bottom
+    chatEl.scrollTop=chatEl.scrollHeight;
+  },800);
+}
+// Close search on outside click
+document.addEventListener('click',e=>{
+  if(!e.target.closest('#global-search')&&!e.target.closest('#search-results'))_closeSearch();
+});
+
+// ─── Org Chart (D3.js full-screen) ───
+function openOrgChart(){
+  if(!currentCompany)return;
+  const overlay=document.getElementById('org-chart-overlay');
+  overlay.style.display='flex';
+  renderOrgChart();
+}
+function closeOrgChart(){
+  document.getElementById('org-chart-overlay').style.display='none';
+  document.getElementById('org-chart-panel').style.display='none';
+}
+
+function _buildMentionEdges(chat){
+  const freq={};
+  (chat||[]).forEach(m=>{
+    if(!m.from||m.type==='user'||m.type==='system')return;
+    const fromId=m.from.toLowerCase();
+    const mentions=(m.text||'').match(/@(\w+)/g)||[];
+    mentions.forEach(t=>{
+      const toId=t.slice(1).toLowerCase();
+      const key=`${fromId}→${toId}`;
+      freq[key]=(freq[key]||0)+1;
+    });
+  });
+  return freq;
+}
+
+function renderOrgChart(){
+  const c=companies.find(x=>x.id===currentCompany);
+  if(!c)return;
+  const svgEl=document.getElementById('org-chart-svg');
+  svgEl.innerHTML='';
+  const W=svgEl.clientWidth||800,H=svgEl.clientHeight||600;
+
+  const mentionFreq=_buildMentionEdges(c.chat);
+
+  // Nodes: master + agents
+  const masterNode={id:'__master__',name:'마스터',emoji:'👤',status:'active',isMaster:true};
+  const agentNodes=(c.agents||[]).map(a=>({...a,isMaster:false}));
+  const nodes=[masterNode,...agentNodes];
+
+  // Links: master→each agent, plus inter-agent mention edges
+  const links=[
+    ...agentNodes.map(a=>({source:'__master__',target:a.id,weight:1,type:'hierarchy'}))
+  ];
+  Object.entries(mentionFreq).forEach(([key,cnt])=>{
+    const [from,to]=key.split('→');
+    if(nodes.find(n=>n.id===from)&&nodes.find(n=>n.id===to)){
+      links.push({source:from,target:to,weight:cnt,type:'mention'});
+    }
+  });
+
+  const svg=d3.select(svgEl)
+    .attr('width',W).attr('height',H);
+
+  // Zoom
+  const g=svg.append('g');
+  svg.call(d3.zoom().scaleExtent([0.3,3]).on('zoom',e=>g.attr('transform',e.transform)));
+
+  // Force simulation
+  const sim=d3.forceSimulation(nodes)
+    .force('link',d3.forceLink(links).id(d=>d.id).distance(d=>d.type==='hierarchy'?120:80))
+    .force('charge',d3.forceManyBody().strength(-300))
+    .force('center',d3.forceCenter(W/2,H/2))
+    .force('collision',d3.forceCollide(35));
+
+  // Draw links
+  const link=g.append('g').selectAll('line').data(links).join('line')
+    .attr('stroke',d=>d.type==='mention'?'#60a5fa':'#334155')
+    .attr('stroke-width',d=>d.type==='mention'?Math.min(d.weight,5):1.5)
+    .attr('stroke-dasharray',d=>d.type==='mention'?'5,3':'none')
+    .attr('stroke-opacity',0.6);
+
+  // Draw nodes
+  const node=g.append('g').selectAll('g').data(nodes).join('g')
+    .attr('cursor','pointer')
+    .on('click',(_,d)=>_orgChartNodeClick(d))
+    .call(d3.drag()
+      .on('start',(e,d)=>{if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y})
+      .on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y})
+      .on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null}));
+
+  node.append('circle')
+    .attr('r',d=>d.isMaster?24:18)
+    .attr('fill',d=>d.isMaster?'#1e1b4b':d.status==='working'?'#78350f':d.status==='idle'?'#1e293b':'#0f2744')
+    .attr('stroke',d=>d.isMaster?'#818cf8':d.status==='working'?'#fbbf24':d.status==='active'?'#22c55e':'#475569')
+    .attr('stroke-width',2);
+
+  node.append('text').text(d=>d.emoji||'🤖')
+    .attr('text-anchor','middle').attr('dominant-baseline','middle')
+    .attr('font-size',d=>d.isMaster?18:16).attr('pointer-events','none');
+
+  node.append('text').text(d=>d.isMaster?'마스터':(d.name||d.id).substring(0,8))
+    .attr('text-anchor','middle').attr('y',d=>d.isMaster?34:28)
+    .attr('fill','#94a3b8').attr('font-size',10).attr('pointer-events','none');
+
+  // Status ring for working agents
+  node.filter(d=>d.status==='working').append('circle')
+    .attr('r',d=>d.isMaster?28:22).attr('fill','none')
+    .attr('stroke','#fbbf24').attr('stroke-width',1.5)
+    .attr('stroke-dasharray','4,3').attr('opacity',0.7);
+
+  sim.on('tick',()=>{
+    link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+        .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    node.attr('transform',d=>`translate(${d.x},${d.y})`);
+  });
+}
+
+async function _orgChartNodeClick(d){
+  if(d.isMaster)return;
+  const panel=document.getElementById('org-chart-panel');
+  const content=document.getElementById('org-chart-panel-content');
+  panel.style.display='block';
+  content.innerHTML=`<div style="font-size:18px;margin-bottom:4px">${d.emoji||'🤖'} ${d.name}</div><div style="font-size:11px;color:var(--dim);margin-bottom:10px">${d.role||''}</div><div style="font-size:10px;color:var(--dim)">불러오는 중...</div>`;
+  // Render org chart again to resize
+  renderOrgChart();
+  try{
+    const [inboxRes,standupRes]=await Promise.all([
+      fetch(`/api/inbox/${currentCompany}/${d.id}`),
+      fetch(`/api/standup/${currentCompany}/${d.id}`)
+    ]);
+    const inbox=inboxRes.ok?await inboxRes.text():'';
+    const standup=standupRes.ok?await standupRes.text():'';
+    const statusColor=d.status==='working'?'#fbbf24':d.status==='active'?'#22c55e':'#64748b';
+    const statusLbl=d.status==='working'?'🔄 작업중':d.status==='active'?'🟢 활성':'⏳ 대기';
+    content.innerHTML=`
+      <div style="font-size:20px;margin-bottom:2px">${d.emoji||'🤖'} ${d.name}</div>
+      <div style="font-size:11px;color:${statusColor};margin-bottom:2px">${statusLbl}</div>
+      <div style="font-size:10px;color:var(--dim);margin-bottom:10px">${d.role||''}</div>
+      ${standup?`<div style="font-size:10px;font-weight:600;color:#94a3b8;margin-bottom:4px">📋 스탠드업</div><div style="font-size:10px;color:var(--text);background:var(--card);border-radius:6px;padding:6px;margin-bottom:10px;white-space:pre-wrap;max-height:120px;overflow-y:auto">${standup.substring(0,400)}</div>`:''}
+      ${inbox?`<div style="font-size:10px;font-weight:600;color:#94a3b8;margin-bottom:4px">📬 받은 메시지</div><div style="font-size:10px;color:var(--text);background:var(--card);border-radius:6px;padding:6px;white-space:pre-wrap;max-height:200px;overflow-y:auto">${inbox.substring(0,600)}</div>`:'<div style="font-size:10px;color:var(--dim)">받은 메시지 없음</div>'}
+    `;
+  }catch(e){content.innerHTML+='<br><div style="color:var(--dim);font-size:10px">로드 실패</div>';}
+}
 </script>
 </body>
 </html>

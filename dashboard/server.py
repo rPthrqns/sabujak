@@ -1,12 +1,24 @@
 #!/usr/bin/env python3
 """AI Company Hub - Multi-company Dashboard Server
 Enhanced with Goals, Kanban Board, Cost Tracking, Approval Gates, and Task Dependencies."""
-import json, os, re, http.server, socketserver, subprocess, threading, time, urllib.request, uuid
+import asyncio, hmac, json, os, re, http.server, socketserver, subprocess, threading, time, urllib.request, urllib.parse, uuid
 from pathlib import Path
 from datetime import datetime
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parent))
+from runtime import get_runtime
+
+# FastAPI / async server stack
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 from db import (init_db, migrate_from_json, db_get_company, db_save_company, db_update_company,
                db_get_all_companies, db_delete_company, db_add_chat, db_add_chats, db_add_activity, db_add_activities,
                db_add_approval, db_get_approvals, db_update_approval, db_get_tasks, db_add_task, db_update_task, db_delete_task,
+               db_search_chat, db_get_webhook_routes, db_add_webhook_route, db_delete_webhook_route,
+               db_create_snapshot, db_get_snapshots, db_get_snapshot, db_delete_snapshot,
                db_get_doc, db_save_doc, db_clear_doc_cache)
 
 # ─── Constants ───
@@ -14,8 +26,11 @@ PORT = 3000
 BASE = Path(__file__).resolve().parent.parent
 DATA = BASE / "data"
 COMPANIES_FILE = DATA / "companies.json"
-SSE_CLIENTS = []
+SSE_CLIENTS = []          # kept for backward compat reference; not used by FastAPI SSE
 SSE_LOCK = threading.Lock()
+SSE_QUEUES: list = []     # asyncio.Queue per SSE client
+SSE_QUEUES_LOCK = threading.Lock()
+_EVENT_LOOP: asyncio.AbstractEventLoop | None = None
 AGENT_LOCK = threading.Lock()
 _COMPANY_LOCKS = {}
 _COMPANY_LOCKS_MUTEX = threading.Lock()
@@ -26,6 +41,9 @@ def _get_company_lock(cid):
             _COMPANY_LOCKS[cid] = threading.Lock()
         return _COMPANY_LOCKS[cid]
 _running_task_threads = set()
+
+# ─── Runtime Abstraction ───
+RUNTIME = get_runtime('openclaw')
 
 def _reset_stuck_agents():
     """서버 시작 시 working 상태인 에이전트를 active로 리셋"""
@@ -104,18 +122,20 @@ COST_PER_1K_TOKENS = 0.003  # rough estimate for cost calculation
 # ─── Utility Functions ───
 
 def sse_broadcast(event_type, data):
-    """Broadcast SSE event to all connected clients."""
+    """Broadcast SSE event to all connected clients (thread-safe)."""
     msg = f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-    with SSE_LOCK:
+    with SSE_QUEUES_LOCK:
         dead = []
-        for wfile in SSE_CLIENTS:
+        for q in SSE_QUEUES:
             try:
-                wfile.write(msg.encode())
-                wfile.flush()
-            except:
-                dead.append(wfile)
-        for w in dead:
-            SSE_CLIENTS.remove(w)
+                if _EVENT_LOOP is not None and _EVENT_LOOP.is_running():
+                    _EVENT_LOOP.call_soon_threadsafe(q.put_nowait, msg)
+                else:
+                    q.put_nowait(msg)
+            except Exception:
+                dead.append(q)
+        for q in dead:
+            SSE_QUEUES.remove(q)
 
 import re
 
@@ -295,7 +315,7 @@ def load_json(path, default=None):
                 import shutil
                 shutil.copy2(str(path) + '.bak', path)
                 return data
-            except:
+            except (json.JSONDecodeError, UnicodeDecodeError, OSError):
                 print(f"[WARN] backup also failed, resetting {path}")
                 if default is not None:
                     save_json(path, default)
@@ -313,7 +333,8 @@ def save_json(path, data):
         try:
             import shutil
             shutil.copy2(path, str(path) + '.bak')
-        except: pass
+        except OSError as e:
+            print(f"[WARN] backup failed for {path}: {e}")
     # Atomic write via temp file
     import tempfile, os
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix='.tmp')
@@ -321,9 +342,12 @@ def save_json(path, data):
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
             f.write(test)
         os.replace(tmp, str(path))
-    except:
-        try: os.unlink(tmp)
-        except: pass
+    except OSError as e:
+        print(f"[WARN] save_json write failed for {path}: {e}")
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 def gen_id(prefix="id"):
     """Generate a short unique ID."""
@@ -357,7 +381,8 @@ def init_companies():
                             a['status'] = 'active'
                     db_save_company(data)
                     print(f"[init] recovered {data['id']} from {f.name}")
-            except: pass
+            except Exception as e:
+                print(f"[init] failed to recover {f.name}: {e}")
     print(f"[init] {len(db_get_all_companies())} companies ready")
     return db_get_all_companies()
 
@@ -1042,27 +1067,19 @@ def _register_and_activate(agent_id, workspace, name, role):
         bs2.unlink()
     
     with AGENT_LOCK:
-        try:
-            subprocess.run(
-                ['openclaw', 'agents', 'add', agent_id, '--workspace', str(ws_path), '--non-interactive'],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15
-            )
-        except: pass
-    
+        RUNTIME.register(agent_id, str(ws_path))
+
     # 첫 메시지로 세션 활성화
     try:
-        subprocess.run(
-            ['openclaw', 'agent', '--agent', agent_id, '--local',
-             '-m', f'당신은 {name}({role})입니다. "확인"이라고만 답하세요.'],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
-        )
+        RUNTIME.run(agent_id, f"{agent_id}-init",
+                    f'당신은 {name}({role})입니다. "확인"이라고만 답하세요.', timeout=30)
         print(f"[register] {agent_id} ({name}) activated")
     except Exception as e:
         print(f"[register] {agent_id} activate failed: {e}")
 
 # ─── Recurring Task System ───
 
-def add_recurring_task(cid, title, prompt, interval_minutes, agent_id, agent_name, agent_emoji):
+def add_recurring_task(cid, title, prompt, interval_minutes, agent_id, agent_name, agent_emoji, cron_expression=''):
     company = get_company(cid)
     if not company:
         return None
@@ -1072,6 +1089,7 @@ def add_recurring_task(cid, title, prompt, interval_minutes, agent_id, agent_nam
         'id': task_id, 'agent_id': agent_id, 'agent_name': agent_name,
         'agent_emoji': agent_emoji, 'title': title, 'prompt': prompt,
         'interval_minutes': interval_minutes, 'status': 'running',
+        'cron_expression': cron_expression,
         'last_run': None, 'next_run': datetime.now().isoformat(),
         'created_at': datetime.now().isoformat(), 'results': [],
     }
@@ -1083,6 +1101,40 @@ def add_recurring_task(cid, title, prompt, interval_minutes, agent_id, agent_nam
 def get_recurring_tasks(cid):
     company = get_company(cid)
     return company.get('recurring_tasks', []) if company else []
+
+def run_meeting(cid, topic, agent_ids):
+    """Start a meeting: nudge each agent with the meeting topic simultaneously.
+    Each agent is prompted to share their perspective and collaborate via @mentions."""
+    company = get_company(cid)
+    if not company:
+        return
+    agents = [a for a in company.get('agents', []) if a['id'] in [x.lower() for x in agent_ids]]
+    if not agents:
+        agents = company.get('agents', [])[:3]  # Default: first 3 agents
+
+    now_str = datetime.now().strftime('%H:%M')
+    meeting_id = f"meeting-{int(time.time())}"
+    # Announce meeting in chat
+    announce = f"🏛️ 회의 시작: {topic}\n참석자: {', '.join(a['emoji']+' '+a['name'] for a in agents)}"
+    append_chat(cid, {"from": "시스템", "emoji": "🏛️", "text": announce,
+                       "time": datetime.now().isoformat(), "type": "system"}, broadcast=True)
+    append_activity(cid, {"time": now_str, "agent": "시스템",
+                           "text": f"🏛️ 회의 시작: {topic} (참석자 {len(agents)}명)"})
+
+    meeting_prompt_base = (
+        f"📋 [회의] 주제: {topic}\n\n"
+        f"이 회의에 참석 중인 다른 팀원: {', '.join('@'+a['name'] for a in agents)}\n\n"
+        "당신의 전문 분야 관점에서 이 주제에 대한 의견, 계획, 우려사항을 공유하세요. "
+        "필요하면 @멘션으로 다른 팀원과 협력하세요."
+    )
+    # Nudge all participants (the queue system handles concurrency)
+    for a in agents:
+        threading.Thread(
+            target=nudge_agent,
+            args=(cid, meeting_prompt_base, a['id'].upper()),
+            daemon=True
+        ).start()
+        time.sleep(0.5)  # Small stagger to avoid race on status updates
 
 def update_task_status(cid, task_id, new_status):
     company = get_company(cid)
@@ -1313,6 +1365,7 @@ _MAX_CONCURRENT = 2  # max agents thinking at once
 _ACTIVE_SEMAPHORE = threading.Semaphore(_MAX_CONCURRENT)
 
 _newspaper_cache = {}  # {cid: (brief, timestamp)}
+_AB_RESULTS = {}  # {test_id: {status, agents: [{agent_id, response, elapsed}]}}
 
 
 def _clean_mention_counts(now_ts=None):
@@ -1565,6 +1618,11 @@ def nudge_agent(cid, text, target):
                         a['status'] = 'working'
                         break
                 update_company(cid, {"agents": c['agents']})
+            sse_broadcast('agent_thinking', {
+                'agent_id': aid, 'cid': cid,
+                'prompt_preview': prompt[:80],
+                'started_at': time.time()
+            })
             c = get_company(cid)
             for t in c.get('board_tasks', []):
                 if t.get('agent_id') == aid and t.get('status') == '대기':
@@ -1573,49 +1631,36 @@ def nudge_agent(cid, text, target):
                     update_company(cid, {'board_tasks': c['board_tasks']})
                     break
 
-            proc = subprocess.Popen(
-                ['openclaw', 'agent', '--agent', agent_id,
-                 '--session-id', session_id, '--local', '-m', prompt],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
             try:
-                stdout, stderr = proc.communicate(timeout=120)
+                reply_raw = RUNTIME.run(agent_id, session_id, prompt, timeout=120)
             except subprocess.TimeoutExpired:
-                print(f"[nudge] {agent_id} main timeout, killing")
-                proc.kill(); proc.wait(timeout=5)
+                print(f"[nudge] {agent_id} main timeout")
                 raise
             elapsed = time.time() - nudge_start
-            reply_raw = stdout.decode().strip()
-            print(f"[nudge] {agent_id} reply={len(reply_raw)}chars rc={proc.returncode} time={elapsed:.1f}s raw={reply_raw[:100]}")
+            print(f"[nudge] {agent_id} reply={len(reply_raw)}chars time={elapsed:.1f}s raw={reply_raw[:100]}")
 
-            retry_ok = True  # Assume OK unless retry needed
-            if not reply_raw or 'No reply from agent' in reply_raw or proc.returncode != 0:
+            retry_ok = bool(reply_raw)
+            if not reply_raw or 'No reply from agent' in reply_raw:
                 print(f"[nudge] {agent_id} no reply, retrying...")
                 time.sleep(2)
-                proc2 = subprocess.Popen(
-                    ['openclaw', 'agent', '--agent', agent_id,
-                     '--session-id', f"{session_id}-retry", '--local', '-m', prompt],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE
-                )
-                stdout2, stderr2 = proc2.communicate(timeout=120)
-                reply_raw = stdout2.decode().strip()
-                retry_ok = proc2.returncode == 0
-                print(f"[nudge] {agent_id} retry reply={len(reply_raw)}chars rc={proc2.returncode}")
+                try:
+                    reply_raw = RUNTIME.run(agent_id, f"{session_id}-retry", prompt, timeout=120)
+                    retry_ok = bool(reply_raw)
+                except subprocess.TimeoutExpired:
+                    retry_ok = False
+                print(f"[nudge] {agent_id} retry reply={len(reply_raw)}chars")
 
             # 3rd attempt: session reset
             if not reply_raw or 'No reply from agent' in reply_raw or not retry_ok:
                 print(f"[nudge] {agent_id} 2nd attempt failed, resetting session...")
                 time.sleep(5)
                 new_session = f"{agent_id}-fresh-{int(time.time())}"
-                proc3 = subprocess.Popen(
-                    ['openclaw', 'agent', '--agent', agent_id,
-                     '--session-id', new_session, '--local', '-m', prompt],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE
-                )
-                stdout3, stderr3 = proc3.communicate(timeout=120)
-                reply_raw = stdout3.decode().strip()
+                try:
+                    reply_raw = RUNTIME.run(agent_id, new_session, prompt, timeout=120)
+                except subprocess.TimeoutExpired:
+                    reply_raw = ''
                 print(f"[nudge] {agent_id} 3rd attempt reply={len(reply_raw)}chars")
-                if reply_raw and 'No reply from agent' not in reply_raw and proc3.returncode == 0:
+                if reply_raw and 'No reply from agent' not in reply_raw:
                     session_id = new_session  # Use new session going forward
 
             # All attempts failed — notify user
@@ -1670,7 +1715,8 @@ def nudge_agent(cid, text, target):
                     has_agent_mention = bool(re.search(r'@(CMO|CTO|CEO|CFO|COO)', clean, re.IGNORECASE))
                     # Rate limit mentions to prevent ping-pong loops
                     if has_agent_mention:
-                        chain = f"{aid}->{','.join(re.findall(r'@(\w+)', clean, re.IGNORECASE))}"
+                        mentions = ','.join(re.findall(r'@(\w+)', clean, re.IGNORECASE))
+                        chain = f"{aid}->{mentions}"
                         mention_count = _bump_mention_chain(cid, chain)
                         if mention_count > _MENTION_LIMIT:
                             print(f"[nudge] mention rate limit hit: {chain} ({mention_count})")
@@ -1679,12 +1725,10 @@ def nudge_agent(cid, text, target):
                         print(f"[nudge] CEO acknowledged without delegation, prompting for plan...")
                         time.sleep(2)
                         followup = f"{agent_name}, 당신은 방금 '{text[:50]}'에 대해 계획만 언급하고 팀원에게 지시하지 않았습니다. 지금 바로 구체적인 계획을 세우고 @CMO @CTO에 각자 해야 할 작업을 @멘션으로 지시하세요. COMPLEX 프로토콜을 따르세요."
-                        proc_f = subprocess.Popen(
-                            ['openclaw', 'agent', '--agent', agent_id,
-                             '--session-id', session_id, '--local', '-m', followup],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                        stdout_f, stderr_f = proc_f.communicate(timeout=120)
-                        reply_f = stdout_f.decode().strip()
+                        try:
+                            reply_f = RUNTIME.run(agent_id, session_id, followup, timeout=120)
+                        except subprocess.TimeoutExpired:
+                            reply_f = ''
                         print(f"[nudge] CEO followup reply={len(reply_f)}chars")
                         if reply_f:
                             clean_f = '\n'.join(l for l in reply_f.split('\n')
@@ -1701,18 +1745,11 @@ def nudge_agent(cid, text, target):
                                         print(f"[nudge] followup post failed: {e}")
 
         except subprocess.TimeoutExpired:
-            print(f"[nudge] {agent_id} timeout after {time.time()-nudge_start:.0f}s, killing...")
-            for p in [locals().get('proc'), locals().get('proc2'), locals().get('proc3'), locals().get('proc_f')]:
-                if not p:
-                    continue
-                try:
-                    p.kill()
-                    p.wait(timeout=5)
-                except:
-                    pass
+            print(f"[nudge] {agent_id} timeout after {time.time()-nudge_start:.0f}s")
         except Exception as e:
             print(f"[nudge] {agent_id} error: {e}")
         finally:
+            sse_broadcast('agent_done', {'agent_id': aid, 'cid': cid})
             _AGENT_BUSY.discard(key)
             _ACTIVE_SEMAPHORE.release()
             try:
@@ -1826,20 +1863,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             rel_path = unquote(rel_path)
             # 형식: {cid}/workspaces/{agent}/deliverables/{file}
             parts = rel_path.split('/', 1)
-            if len(parts) >= 1:
+            if len(parts) >= 2:
                 cid = parts[0]
-                file_rel = parts[1] if len(parts) > 1 else ''
-                file_path = DATA / cid / file_rel
-                if file_path.exists() and file_path.is_file():
-                    try:
+                file_rel = parts[1]
+                try:
+                    # 경로 탐색 공격 방지: 실제 경로를 resolve하고 허용 디렉토리 내인지 확인
+                    allowed_base = (DATA / cid).resolve()
+                    file_path = (DATA / cid / file_rel).resolve()
+                    if not str(file_path).startswith(str(allowed_base) + os.sep) and str(file_path) != str(allowed_base):
+                        self._json({'error': 'forbidden'}, 403)
+                        return
+                    if file_path.exists() and file_path.is_file():
                         content = file_path.read_text(encoding='utf-8')
                         self.send_response(200)
                         self.send_header('Content-Type', 'text/plain; charset=utf-8')
                         self.end_headers()
                         self.wfile.write(content.encode('utf-8'))
                         return
-                    except:
-                        pass
+                except (OSError, ValueError) as e:
+                    print(f"[WARN] file read error: {e}")
             self._json({'error': 'file not found'}, 404)
         elif self.path.startswith('/api/costs/'):
             cid = self.path.split('/')[-1]
@@ -1871,6 +1913,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if 'status=pending' in qs:
                     status_filter = 'pending'
             self._json(get_approvals(cid, status_filter))
+        elif self.path.startswith('/api/search'):
+            self._handle_search()
+        elif self.path.startswith('/api/ab-result/'):
+            test_id = self.path.split('/')[-1]
+            self._json(_AB_RESULTS.get(test_id, {"status": "not_found"}))
+        elif self.path.startswith('/api/webhook-routes/'):
+            cid = self.path.split('/')[-1]
+            self._json(db_get_webhook_routes(cid))
+        elif self.path.startswith('/api/snapshots/'):
+            cid = self.path.split('/')[-1]
+            self._json(db_get_snapshots(cid))
         elif self.path == '/api/agents':
             self._json(AGENT_TEMPLATES)
         elif self.path == '/api/topics':
@@ -1880,6 +1933,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         else:
             if self.path == '/': self.path = '/index.html'
             return super().do_GET()
+
+    def _handle_search(self):
+        """GET /api/search?q=query&cid=... — full-text search across chat messages."""
+        qs = self.path.split('?', 1)[1] if '?' in self.path else ''
+        params = {}
+        for part in qs.split('&'):
+            if '=' in part:
+                k, v = part.split('=', 1)
+                params[k] = urllib.parse.unquote_plus(v)
+        query = params.get('q', '').strip()
+        cid_filter = params.get('cid', '').strip()
+        if not query:
+            self._json({"error": "q required"}, 400); return
+        company_ids = [cid_filter] if cid_filter else None
+        results = db_search_chat(query, company_ids=company_ids, limit=50)
+        # Attach company name for display
+        company_map = {c['id']: c.get('name', c['id']) for c in db_get_all_companies()}
+        for r in results:
+            r['company_name'] = company_map.get(r['company_id'], r['company_id'])
+        self._json(results)
 
     def _handle_sse(self):
         self.send_response(200)
@@ -1896,7 +1969,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             initial = json.dumps(companies, ensure_ascii=False)
             wfile.write(f"event: init\ndata: {initial}\n\n".encode())
             wfile.flush()
-        except:
+        except (BrokenPipeError, OSError, ConnectionResetError):
             pass
         try:
             while True:
@@ -1904,7 +1977,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 try:
                     wfile.write(b": keepalive\n\n")
                     wfile.flush()
-                except:
+                except (BrokenPipeError, OSError, ConnectionResetError):
                     break
         finally:
             with SSE_LOCK:
@@ -1922,7 +1995,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         # ─── Existing Endpoints ───
         if path == '/api/companies':
-            company = create_company(body.get('name',''), body.get('topic',''), body.get('lang','ko'))
+            name = body.get('name', '').strip()
+            if not name or len(name) > 100:
+                self._json({"error": "name must be 1-100 characters"}, 400); return
+            lang = body.get('lang', 'ko')
+            if lang not in LANG:
+                lang = 'ko'
+            company = create_company(name, body.get('topic',''), lang)
             self._json({"ok": True, "company": company})
 
         elif path.startswith('/api/chat/'):
@@ -1996,27 +2075,263 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         elif path.startswith('/api/webhook/'):
             self._handle_webhook(path, body)
 
+        elif path.startswith('/api/cross-nudge'):
+            self._handle_cross_nudge(path, body)
+
+        elif path.startswith('/api/ab-test/'):
+            self._handle_ab_test(path, body)
+
+        elif path.startswith('/api/webhook-route-add/'):
+            self._handle_webhook_route_add(path, body)
+
+        elif path.startswith('/api/webhook-route-delete/'):
+            self._handle_webhook_route_delete(path, body)
+
+        elif path.startswith('/api/snapshot/'):
+            self._handle_snapshot(path, body)
+
+        elif path.startswith('/api/fork/'):
+            self._handle_fork(path, body)
+
+        elif path.startswith('/api/restore/'):
+            self._handle_restore(path, body)
+
+        elif path.startswith('/api/meeting/'):
+            self._handle_meeting(path, body)
+
+        elif path.startswith('/api/daily-report/'):
+            self._handle_daily_report(path, body)
+
         else:
             self._json({"error": "not found"}, 404)
 
 
     def _handle_webhook(self, path, body):
-        """Receive external webhook and forward to agents."""
+        """Receive external webhook and route via webhook_routes table, fallback CEO."""
         cid = path.split('/')[-1]
         company = get_company(cid)
         if not company: self._json({"error": "not found"}, 404); return
         wh_secret = company.get('webhook_secret', '')
         req_secret = self.headers.get('X-Webhook-Secret', '')
-        if wh_secret and req_secret != wh_secret:
+        if wh_secret and not hmac.compare_digest(req_secret, wh_secret):
             self._json({"error": "unauthorized"}, 401); return
-        text = body.get('text', body.get('message', json.dumps(body, ensure_ascii=False)))
+        payload_str = json.dumps(body, ensure_ascii=False)
+        text = body.get('text', body.get('message', payload_str))
         if not text: self._json({"error": "empty"}, 400); return
         now = datetime.now(); time_str = now.strftime('%H:%M')
         msg = {"from": "webhook", "emoji": "🔗", "text": text[:500], "time": time_str, "type": "user"}
         append_chat(cid, msg, broadcast=True)
-        # Forward to CEO
-        threading.Thread(target=nudge_agent, args=(cid, f"[웹훅 수신] {text[:200]}", 'CEO'), daemon=True).start()
+
+        # Check webhook routes
+        routes = db_get_webhook_routes(cid)
+        routed = False
+        for route in routes:
+            filter_expr = route.get('filter_expr', '').strip()
+            # Simple filter: check if filter keyword is present in payload
+            if filter_expr and filter_expr.lower() not in payload_str.lower():
+                continue
+            tmpl = route.get('prompt_template', '') or f"[웹훅 수신 - {route.get('source','custom')}] {text[:300]}"
+            # Simple {{field}} substitution from body
+            for k, v in body.items():
+                tmpl = tmpl.replace('{{'+k+'}}', str(v))
+            target = route.get('target_agent', 'CEO')
+            threading.Thread(target=nudge_agent, args=(cid, tmpl, target.upper()), daemon=True).start()
+            routed = True
+        if not routed:
+            threading.Thread(target=nudge_agent, args=(cid, f"[웹훅 수신] {text[:200]}", 'CEO'), daemon=True).start()
+        self._json({"ok": True, "routed": routed})
+
+    # ─── Snapshot / Fork / Restore ───
+    def _handle_snapshot(self, path, body):
+        cid = path.split('/')[-1]
+        company = get_company(cid)
+        if not company: self._json({"error": "not found"}, 404); return
+        label = body.get('label', datetime.now().strftime('%Y-%m-%d %H:%M')).strip()[:100]
+        snap_id = db_create_snapshot(cid, label, company)
+        self._json({"ok": True, "snapshot_id": snap_id, "label": label})
+
+    def _handle_fork(self, path, body):
+        """Create a new company from a snapshot."""
+        parts = path.split('/')
+        snap_id = parts[-1]
+        snap = db_get_snapshot(snap_id)
+        if not snap: self._json({"error": "snapshot not found"}, 404); return
+        data = snap['data']
+        new_name = body.get('name', f"{data.get('name','회사')} (포크)").strip()[:100]
+        new_cid = f"fork-{uuid.uuid4().hex[:8]}"
+        fork_company = dict(data)
+        fork_company['id'] = new_cid
+        fork_company['name'] = new_name
+        fork_company['status'] = 'starting'
+        fork_company['created_at'] = datetime.now().isoformat()
+        fork_company['activity_log'] = (data.get('activity_log') or [])[-20:]  # Keep recent history
+        save_company(fork_company)
+        init_companies()
+        sse_broadcast('company_update', {"id": new_cid, "company": get_company(new_cid)})
+        self._json({"ok": True, "new_cid": new_cid, "name": new_name})
+
+    def _handle_restore(self, path, body):
+        """Restore a company to a snapshot state."""
+        parts = path.split('/')
+        snap_id = parts[-1]
+        cid = parts[-2] if len(parts) > 2 else None
+        snap = db_get_snapshot(snap_id)
+        if not snap: self._json({"error": "snapshot not found"}, 404); return
+        if not cid or not get_company(cid): self._json({"error": "company not found"}, 404); return
+        data = dict(snap['data'])
+        data['id'] = cid  # Keep original ID
+        save_company(data)
+        refreshed = get_company(cid)
+        sse_broadcast('company_update', {"id": cid, "company": refreshed})
+        self._json({"ok": True, "restored_to": snap.get('label','')})
+
+    # ─── Webhook Route Management ───
+    def _handle_webhook_route_add(self, path, body):
+        cid = path.split('/')[-1]
+        if not get_company(cid): self._json({"error": "not found"}, 404); return
+        source = body.get('source', 'custom').strip()[:50]
+        filter_expr = body.get('filter_expr', '').strip()[:200]
+        target_agent = body.get('target_agent', 'CEO').strip()[:50]
+        prompt_template = body.get('prompt_template', '').strip()[:500]
+        route_id = db_add_webhook_route(cid, source, filter_expr, target_agent, prompt_template)
+        self._json({"ok": True, "route_id": route_id})
+
+    def _handle_webhook_route_delete(self, path, body):
+        cid = path.split('/')[-1]
+        route_id = body.get('route_id', '').strip()
+        if not route_id: self._json({"error": "route_id required"}, 400); return
+        db_delete_webhook_route(cid, route_id)
         self._json({"ok": True})
+
+    # ─── A/B Agent Test Handler ───
+    def _handle_ab_test(self, path, body):
+        """POST /api/ab-test/{cid} — send same prompt to 2+ agents simultaneously and compare."""
+        cid = path.split('/')[-1]
+        company = get_company(cid)
+        if not company: self._json({"error": "not found"}, 404); return
+        text = body.get('text', '').strip()
+        agent_ids = body.get('agents', [])
+        if not text: self._json({"error": "text required"}, 400); return
+        if len(agent_ids) < 2: self._json({"error": "need at least 2 agents"}, 400); return
+
+        test_id = f"ab-{uuid.uuid4().hex[:8]}"
+        agents = company.get('agents', [])
+        participants = [a for a in agents if a['id'] in agent_ids]
+        if len(participants) < 2:
+            self._json({"error": "agents not found in company"}, 400); return
+
+        _AB_RESULTS[test_id] = {
+            'status': 'running', 'text': text,
+            'agents': [{'agent_id': a['id'], 'name': a.get('name',''), 'emoji': a.get('emoji','🤖'),
+                        'response': None, 'elapsed': None, 'status': 'waiting'} for a in participants]
+        }
+
+        def _run_agent(idx, agent):
+            start = time.time()
+            _AB_RESULTS[test_id]['agents'][idx]['status'] = 'running'
+            ab_prompt = f"[A/B 테스트] {text}\n\n이 지시에 대해 당신의 관점에서 최선의 응답을 작성하세요."
+            # Direct subprocess call (bypassing queue for clean comparison)
+            agent_id_full = agent.get('agent_id', f"{cid}-{agent['id']}")
+            session_id = f"{agent_id_full}-ab-{test_id}"
+            try:
+                proc = subprocess.Popen(
+                    ['openclaw', 'agent', '--agent', agent_id_full,
+                     '--session-id', session_id, '--local', '-m', ab_prompt],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout, _ = proc.communicate(timeout=120)
+                reply = stdout.decode().strip()
+                lines = reply.split('\n')
+                clean = '\n'.join(l for l in lines if not l.startswith('[') and not l.startswith('(agent') and l.strip()).strip()
+                elapsed = round(time.time() - start, 1)
+                _AB_RESULTS[test_id]['agents'][idx]['response'] = clean or '(응답 없음)'
+                _AB_RESULTS[test_id]['agents'][idx]['elapsed'] = elapsed
+                _AB_RESULTS[test_id]['agents'][idx]['status'] = 'done'
+                _AB_RESULTS[test_id]['agents'][idx]['tokens'] = max(len(clean) // 4, 1)
+            except Exception as e:
+                _AB_RESULTS[test_id]['agents'][idx]['response'] = f'오류: {e}'
+                _AB_RESULTS[test_id]['agents'][idx]['status'] = 'error'
+            # Check if all done
+            if all(r['status'] in ('done','error') for r in _AB_RESULTS[test_id]['agents']):
+                _AB_RESULTS[test_id]['status'] = 'done'
+                sse_broadcast('ab_done', {'test_id': test_id})
+
+        for i, a in enumerate(participants):
+            threading.Thread(target=_run_agent, args=(i, a), daemon=True).start()
+        self._json({"ok": True, "test_id": test_id})
+
+    # ─── Cross-Company Outsourcing Handler ───
+    def _handle_cross_nudge(self, path, body):
+        """POST /api/cross-nudge — delegate work from one company's agent to another."""
+        from_cid = body.get('from_cid', '').strip()
+        to_cid = body.get('to_cid', '').strip()
+        from_agent = body.get('from_agent', '').strip()
+        to_agent = body.get('to_agent', '').strip()
+        text = body.get('text', '').strip()
+        if not all([from_cid, to_cid, text]):
+            self._json({"error": "from_cid, to_cid, text required"}, 400); return
+        from_company = get_company(from_cid)
+        to_company = get_company(to_cid)
+        if not from_company: self._json({"error": f"company not found: {from_cid}"}, 404); return
+        if not to_company: self._json({"error": f"company not found: {to_cid}"}, 404); return
+
+        from_name = from_company.get('name', from_cid)
+        to_name = to_company.get('name', to_cid)
+        if not to_agent:
+            agents = to_company.get('agents', [])
+            to_agent = agents[0]['id'] if agents else 'ceo'
+        outsource_text = (
+            f"🔗 [아웃소싱 의뢰] {from_name} → {to_name}\n"
+            f"의뢰 내용: {text}\n\n"
+            "외부 파트너사 요청입니다. 전문적으로 검토하고 결과를 응답하세요."
+        )
+
+        def _run():
+            # Send task to target company
+            nudge_agent(to_cid, outsource_text, to_agent.upper())
+            # Log in source company's chat
+            now_str = datetime.now().isoformat()
+            src_msg = {
+                'from': f'🔗 아웃소싱→{to_name}',
+                'emoji': '🔗', 'text': f"[외주 의뢰] {to_name} {to_agent.upper()}에게 전달:\n{text}",
+                'time': now_str, 'type': 'system'
+            }
+            append_chat(from_cid, src_msg, broadcast=True)
+        threading.Thread(target=_run, daemon=True).start()
+        self._json({"ok": True, "from": from_name, "to": to_name, "to_agent": to_agent})
+
+    # ─── Meeting Handler ───
+    def _handle_meeting(self, path, body):
+        cid = path.split('/')[-1]
+        company = get_company(cid)
+        if not company: self._json({"error": "not found"}, 404); return
+        topic = body.get('topic', '').strip()
+        if not topic: self._json({"error": "topic required"}, 400); return
+        agent_ids = body.get('agents', [a['id'] for a in company.get('agents', [])[:4]])
+        threading.Thread(target=run_meeting, args=(cid, topic, agent_ids), daemon=True).start()
+        self._json({"ok": True, "topic": topic, "participants": len(agent_ids)})
+
+    # ─── Daily Report Handler ───
+    def _handle_daily_report(self, path, body):
+        cid = path.split('/')[-1]
+        company = get_company(cid)
+        if not company: self._json({"error": "not found"}, 404); return
+        agents = company.get('agents', [])
+        ceo = next((a for a in agents if a['id'] == 'ceo'), agents[0] if agents else None)
+        if not ceo: self._json({"error": "no agents"}, 400); return
+        task = add_recurring_task(
+            cid,
+            title='📊 데일리 리포트',
+            prompt=(
+                "오늘 하루 팀 전체의 업무 성과를 정리하여 데일리 리포트를 작성하세요.\n"
+                "포함 사항: ✅ 완료된 작업, ⏳ 진행 중인 작업, ⚠️ 이슈/블로커, 내일 계획.\n"
+                "결과를 @마스터에게 보고하세요."
+            ),
+            interval_minutes=1440,  # 1 day
+            agent_id=ceo['id'],
+            agent_name=ceo['name'],
+            agent_emoji=ceo.get('emoji', '👔')
+        )
+        self._json({"ok": True, "task": task})
 
     # ─── Chat Handler ───
     def _handle_chat(self, path, body):
@@ -2056,7 +2371,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not targets:
             targets = ['CEO']
 
-        msg = {"from": "마스터", "text": text, "time": time_str, "type": "user", "mention": is_mention_msg}
+        parent_id = body.get('parent_id')
+        msg = {"from": "마스터", "text": text, "time": time_str, "type": "user", "mention": is_mention_msg,
+               "parent_id": parent_id}
 
         append_chat(cid, msg, broadcast=False)
         targets_str = ', '.join(f'@{t}' for t in targets)
@@ -2265,12 +2582,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         for agent in company.get('agents', []):
             agent_id = agent.get('agent_id', '')
             if agent_id:
-                try:
-                    subprocess.run(['openclaw', 'agents', 'delete', agent_id, '--force'],
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
-                    print(f"[delete] agent {agent_id} removed")
-                except Exception as e:
-                    print(f"[WARN] agent delete failed {agent_id}: {e}")
+                ok = RUNTIME.delete(agent_id)
+                print(f"[delete] agent {agent_id} {'removed' if ok else 'delete failed'}")
         import shutil
         company_dir = DATA / cid
         if company_dir.exists():
@@ -2334,10 +2647,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not agent: self._json({"error": "agent not found"}, 404); return
         agent_id = agent.get('agent_id', '')
         if agent_id:
-            try:
-                subprocess.run(['openclaw', 'agents', 'delete', agent_id, '--force'],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
-            except: pass
+            RUNTIME.delete(agent_id)
         company['agents'] = [a for a in company['agents'] if a['id'] != aid]
         now = datetime.now().strftime('%H:%M')
         company['activity_log'].append({"time": now, "agent": "CEO", "text": f"👋 {agent.get('emoji','🤖')} {agent['name']} 퇴사"})
@@ -2359,18 +2669,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 import shutil
                 shutil.rmtree(sessions_dir, ignore_errors=True)
                 sessions_dir.mkdir(parents=True, exist_ok=True)
-            subprocess.run(['openclaw', 'agents', 'delete', agent_id, '--force'],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+            RUNTIME.delete(agent_id)
             time.sleep(1)
-            subprocess.run(
-                ['openclaw', 'agents', 'add', agent_id, '--workspace', str(agent_workspace), '--non-interactive'],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15
-            )
-            subprocess.run(
-                ['openclaw', 'agent', '--agent', agent_id, '--local',
-                 '-m', f'당신은 {agent["name"]}({agent["role"]})입니다. 확인만 하세요.'],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
-            )
+            RUNTIME.register(agent_id, str(agent_workspace))
+            try:
+                RUNTIME.run(agent_id, f"{agent_id}-reactivate",
+                            f'당신은 {agent["name"]}({agent["role"]})입니다. 확인만 하세요.',
+                            timeout=30)
+            except Exception:
+                pass
             for a2 in company['agents']:
                 if a2['id'] == aid: a2['status'] = 'active'; break
             update_company(cid, {"agents": company["agents"]})
@@ -2395,13 +2702,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         agent = next((a for a in company.get('agents', []) if a['id'] == agent_id), None)
         if not agent: agent = company['agents'][0] if company.get('agents') else None
         if not agent: self._json({"error": "no agents"}, 400); return
+        cron_expression = body.get('cron_expression', '').strip()
         if not title or not prompt: self._json({"error": "title and prompt required"}, 400); return
-        task = add_recurring_task(cid, title, prompt, interval, agent['id'], agent['name'], agent['emoji'])
+        task = add_recurring_task(cid, title, prompt, interval, agent['id'], agent['name'], agent['emoji'], cron_expression=cron_expression)
         if task:
             now_str = datetime.now().strftime('%H:%M')
             company = get_company(cid)
+            schedule_desc = cron_expression if cron_expression else f"{interval}분마다"
             company["chat"].append({"type": "system", "from": "시스템", "emoji": "🔄", "to": "",
-                "text": f"🔄 정기 작업 생성: \"{title}\" ({interval}분마다)"})
+                "text": f"🔄 정기 작업 생성: \"{title}\" ({schedule_desc})"})
             company["activity_log"].append({"time": now_str, "agent": "시스템", "text": f"🔄 정기 작업: {title}"})
             update_company(cid, {"chat": company["chat"], "activity_log": company["activity_log"]})
             self._json({"ok": True, "task": task})
@@ -2553,6 +2862,384 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         else:
             self._json({"error": "not found"}, 404)
 
+# ─── FastAPI App ───────────────────────────────────────────────────────────
+#
+# _CallContext lets us reuse the existing Handler._handle_* methods without
+# rewriting them. FastAPI routes create a ctx, bind Handler's unbound methods
+# to it, call them, and return ctx._result.
+# ───────────────────────────────────────────────────────────────────────────
+
+class _CallContext:
+    """Minimal fake 'self' that captures _json() calls from Handler methods."""
+    _result = None
+    _status = 200
+
+    def __init__(self, path: str = '', headers: dict | None = None):
+        self.path = path
+        self.headers = headers or {}
+
+    def _json(self, data, code: int = 200):
+        self._result = data
+        self._status = code
+
+    def _cors(self):
+        pass
+
+
+def _call(method_fn, path: str, *args, headers: dict | None = None):
+    """Call an unbound Handler method via _CallContext and return (data, status)."""
+    ctx = _CallContext(path, headers)
+    method_fn(ctx, path, *args)
+    return ctx._result or {"ok": True}, ctx._status
+
+
+app = FastAPI(title="AI Company Hub")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+# ── Startup: capture the event loop for thread-safe SSE broadcasts ──
+
+@app.on_event("startup")
+async def _on_startup():
+    global _EVENT_LOOP
+    _EVENT_LOOP = asyncio.get_running_loop()
+
+# ── SSE ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/sse")
+async def api_sse():
+    q: asyncio.Queue = asyncio.Queue()
+    with SSE_QUEUES_LOCK:
+        SSE_QUEUES.append(q)
+
+    async def _generate():
+        companies = await asyncio.to_thread(db_get_all_companies)
+        yield f"event: init\ndata: {json.dumps(companies, ensure_ascii=False)}\n\n"
+        try:
+            while True:
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=30)
+                    yield msg
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            with SSE_QUEUES_LOCK:
+                if q in SSE_QUEUES:
+                    SSE_QUEUES.remove(q)
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
+                 "X-Accel-Buffering": "no"},
+    )
+
+# ── GET routes ─────────────────────────────────────────────────────────────
+
+@app.get("/api/companies")
+def api_get_companies():
+    return db_get_all_companies()
+
+@app.get("/api/company/{cid}")
+def api_get_company(cid: str):
+    company = get_company(cid)
+    if company:
+        return company
+    raise HTTPException(status_code=404, detail="not found")
+
+@app.get("/api/newspaper/{cid}")
+def api_get_newspaper(cid: str):
+    return {"newspaper": generate_newspaper(cid)}
+
+@app.get("/api/inbox/{cid}/{agent_id}")
+def api_get_inbox(cid: str, agent_id: str):
+    return {"inbox": read_agent_inbox(cid, agent_id)}
+
+@app.get("/api/task-list/{cid}")
+def api_get_task_list(cid: str):
+    return get_recurring_tasks(cid)
+
+@app.get("/api/file/{file_path:path}")
+def api_get_file(file_path: str):
+    from urllib.parse import unquote
+    file_path = unquote(file_path)
+    parts = file_path.split('/', 1)
+    if len(parts) < 2:
+        raise HTTPException(status_code=404, detail="file not found")
+    cid, file_rel = parts[0], parts[1]
+    try:
+        allowed_base = (DATA / cid).resolve()
+        fp = (DATA / cid / file_rel).resolve()
+        if not str(fp).startswith(str(allowed_base) + os.sep):
+            raise HTTPException(status_code=403, detail="forbidden")
+        if fp.exists() and fp.is_file():
+            return PlainTextResponse(fp.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as e:
+        print(f"[WARN] file read error: {e}")
+    raise HTTPException(status_code=404, detail="file not found")
+
+@app.get("/api/costs/{cid}")
+def api_get_costs(cid: str):
+    costs = get_company_costs(cid)
+    if costs:
+        return costs
+    raise HTTPException(status_code=404, detail="not found")
+
+@app.get("/api/goals/{cid}")
+def api_get_goals(cid: str):
+    return get_goals(cid)
+
+@app.get("/api/board-tasks/{cid}")
+def api_get_board_tasks(cid: str):
+    return get_board_tasks(cid)
+
+@app.get("/api/deliverables/{cid}")
+def api_get_deliverables(cid: str):
+    shared_dir = DATA / cid / '_shared' / 'deliverables'
+    files = []
+    if shared_dir.exists():
+        for f in sorted(shared_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+            if f.is_file() and not f.name.startswith('.'):
+                size = f.stat().st_size
+                mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime('%m-%d %H:%M')
+                files.append({'path': f'_shared/deliverables/{f.name}', 'size': size, 'modified': mtime})
+    return files[:50]
+
+@app.get("/api/approvals/{cid}")
+def api_get_approvals(cid: str, status: str | None = None):
+    return get_approvals(cid, status if status else None)
+
+@app.get("/api/search")
+def api_search(q: str | None = None, cid: str | None = None):
+    if not q or not q.strip():
+        raise HTTPException(status_code=400, detail="q required")
+    company_ids = [cid] if cid else None
+    results = db_search_chat(q, company_ids=company_ids, limit=50)
+    company_map = {c['id']: c.get('name', c['id']) for c in db_get_all_companies()}
+    for r in results:
+        r['company_name'] = company_map.get(r['company_id'], r['company_id'])
+    return results
+
+@app.get("/api/ab-result/{test_id}")
+def api_ab_result(test_id: str):
+    return _AB_RESULTS.get(test_id, {"status": "not_found"})
+
+@app.get("/api/webhook-routes/{cid}")
+def api_get_webhook_routes(cid: str):
+    return db_get_webhook_routes(cid)
+
+@app.get("/api/snapshots/{cid}")
+def api_get_snapshots(cid: str):
+    return db_get_snapshots(cid)
+
+@app.get("/api/agents")
+def api_get_agents():
+    return AGENT_TEMPLATES
+
+@app.get("/api/topics")
+def api_get_topics():
+    return TOPIC_ORGS
+
+@app.get("/api/langs")
+def api_get_langs():
+    return LANG
+
+# ── POST routes ────────────────────────────────────────────────────────────
+
+@app.post("/api/companies")
+async def api_create_company(request: Request):
+    body = await request.json()
+    name = body.get('name', '').strip()
+    if not name or len(name) > 100:
+        raise HTTPException(status_code=400, detail="name must be 1-100 characters")
+    lang = body.get('lang', 'ko')
+    if lang not in LANG:
+        lang = 'ko'
+    company = create_company(name, body.get('topic', ''), lang)
+    return {"ok": True, "company": company}
+
+@app.post("/api/company/delete")
+async def api_delete_company(request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_company_delete, '/api/company/delete', body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/chat/{cid}")
+async def api_chat(cid: str, request: Request):
+    body = await request.json()
+    path = f"/api/chat/{cid}"
+    data, code = _call(Handler._handle_chat, path, body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/agent-msg/{cid}")
+async def api_agent_msg(cid: str, request: Request):
+    body = await request.json()
+    path = f"/api/agent-msg/{cid}"
+    data, code = _call(Handler._handle_agent_msg, path, body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/agent-add/{cid}")
+async def api_agent_add(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_agent_add, f"/api/agent-add/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/agent-delete/{cid}/{aid}")
+async def api_agent_delete(cid: str, aid: str):
+    data, code = _call(Handler._handle_agent_delete, f"/api/agent-delete/{cid}/{aid}")
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/agent-reactivate/{cid}/{aid}")
+async def api_agent_reactivate(cid: str, aid: str):
+    data, code = _call(Handler._handle_agent_reactivate, f"/api/agent-reactivate/{cid}/{aid}")
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/task-add/{cid}")
+async def api_task_add(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_task_add, f"/api/task-add/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/task-pause/{cid}/{task_id}")
+def api_task_pause(cid: str, task_id: str):
+    update_task_status(cid, task_id, 'paused')
+    _running_task_threads.discard(f"{cid}:{task_id}")
+    return {"ok": True}
+
+@app.post("/api/task-resume/{cid}/{task_id}")
+def api_task_resume(cid: str, task_id: str):
+    update_task_status(cid, task_id, 'resumed')
+    return {"ok": True}
+
+@app.post("/api/task-stop/{cid}/{task_id}")
+def api_task_stop(cid: str, task_id: str):
+    update_task_status(cid, task_id, 'stopped')
+    _running_task_threads.discard(f"{cid}:{task_id}")
+    return {"ok": True}
+
+@app.post("/api/task-delete/{cid}/{task_id}")
+async def api_task_delete(cid: str, task_id: str):
+    data, code = _call(Handler._handle_task_delete, f"/api/task-delete/{cid}/{task_id}")
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/goal-add/{cid}")
+async def api_goal_add(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_goal_add, f"/api/goal-add/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/goal-update/{cid}")
+async def api_goal_update(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_goal_update, f"/api/goal-update/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/goal-delete/{cid}")
+async def api_goal_delete(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_goal_delete, f"/api/goal-delete/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/board-task-add/{cid}")
+async def api_board_task_add(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_board_task_add, f"/api/board-task-add/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/task-status/{cid}/{task_id}")
+async def api_task_status(cid: str, task_id: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_task_status, f"/api/task-status/{cid}/{task_id}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/board-task-delete/{cid}")
+async def api_board_task_delete(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_board_task_delete, f"/api/board-task-delete/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/approval-approve/{cid}")
+async def api_approval_approve(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_approval_resolve, f"/api/approval-approve/{cid}", body, 'approved')
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/approval-reject/{cid}")
+async def api_approval_reject(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_approval_resolve, f"/api/approval-reject/{cid}", body, 'rejected')
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/webhook/{cid}")
+async def api_webhook(cid: str, request: Request):
+    body = await request.json()
+    raw_headers = dict(request.headers)
+    data, code = _call(Handler._handle_webhook, f"/api/webhook/{cid}", body, headers=raw_headers)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/cross-nudge")
+async def api_cross_nudge(request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_cross_nudge, "/api/cross-nudge", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/ab-test/{cid}")
+async def api_ab_test(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_ab_test, f"/api/ab-test/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/webhook-route-add/{cid}")
+async def api_webhook_route_add(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_webhook_route_add, f"/api/webhook-route-add/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/webhook-route-delete/{cid}")
+async def api_webhook_route_delete(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_webhook_route_delete, f"/api/webhook-route-delete/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/snapshot/{cid}")
+async def api_snapshot(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_snapshot, f"/api/snapshot/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/fork/{snap_id}")
+async def api_fork(snap_id: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_fork, f"/api/fork/{snap_id}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/restore/{cid}/{snap_id}")
+async def api_restore(cid: str, snap_id: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_restore, f"/api/restore/{cid}/{snap_id}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/meeting/{cid}")
+async def api_meeting(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_meeting, f"/api/meeting/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+@app.post("/api/daily-report/{cid}")
+async def api_daily_report(cid: str, request: Request):
+    body = await request.json()
+    data, code = _call(Handler._handle_daily_report, f"/api/daily-report/{cid}", body)
+    return JSONResponse(data, status_code=code)
+
+# ── Static files (must be last — catches everything else) ──────────────────
+
+app.mount("/", StaticFiles(directory=str(BASE / "dashboard"), html=True), name="static")
+
 # ─── Server Setup ───
 
 class ReusableTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -2563,8 +3250,8 @@ def ensure_agents_registered():
     """On startup, re-register all agents from companies data. Runs non-blocking."""
     companies = load_json(COMPANIES_FILE, [])
     try:
-        result = subprocess.run(['openclaw', 'agents', 'list'], capture_output=True, text=True, timeout=20)
-        registered_output = result.stdout or ''
+        from runtime.openclaw import OpenClawRuntime
+        registered_output = OpenClawRuntime().list_registered()
     except Exception as e:
         print(f"[INIT] agents list failed: {e}")
         registered_output = ''
@@ -2638,5 +3325,59 @@ def _watchdog():
             print(f"[watchdog] error: {e}")
 threading.Thread(target=_watchdog, daemon=True).start()
 
-with ReusableTCPServer(("", PORT), Handler) as httpd:
-    httpd.serve_forever()
+# ─── Simple Cron Expression Matcher ───
+def _cron_matches_now(cron_expr):
+    """Check if a 5-field cron expression matches the current minute.
+    Fields: minute hour day-of-month month day-of-week (standard cron).
+    Supports: * ranges (1-5) lists (1,3,5) step (*/15)."""
+    import calendar
+    now = datetime.now()
+    fields = cron_expr.strip().split()
+    if len(fields) != 5:
+        return False
+    def _match(field, val, lo, hi):
+        if field == '*': return True
+        if '/' in field:
+            base, step = field.split('/', 1)
+            start = 0 if base == '*' else int(base)
+            return (val - start) % int(step) == 0 and val >= start
+        if '-' in field:
+            a, b = field.split('-', 1)
+            return int(a) <= val <= int(b)
+        if ',' in field:
+            return val in [int(x) for x in field.split(',')]
+        return val == int(field)
+    try:
+        return (
+            _match(fields[0], now.minute, 0, 59) and
+            _match(fields[1], now.hour, 0, 23) and
+            _match(fields[2], now.day, 1, 31) and
+            _match(fields[3], now.month, 1, 12) and
+            _match(fields[4], now.weekday(), 0, 6)  # 0=Monday
+        )
+    except Exception:
+        return False
+
+def _cron_scheduler():
+    """Check all recurring tasks with cron_expression field every minute."""
+    while True:
+        try:
+            time.sleep(60 - datetime.now().second)  # Align to minute boundary
+            for cid_entry in db_get_all_companies():
+                cid = cid_entry['id']
+                company = get_company(cid)
+                if not company: continue
+                for task in company.get('recurring_tasks', []):
+                    cron_expr = task.get('cron_expression', '')
+                    if not cron_expr or task.get('status') != 'running': continue
+                    if _cron_matches_now(cron_expr):
+                        print(f"[cron] {cid}/{task.get('title','')} triggered by {cron_expr}")
+                        prompt = task.get('prompt', task.get('title', ''))
+                        agent_id = task.get('agent_id', 'ceo')
+                        threading.Thread(target=nudge_agent, args=(cid, prompt, agent_id.upper()), daemon=True).start()
+        except Exception as e:
+            print(f"[cron] scheduler error: {e}")
+
+threading.Thread(target=_cron_scheduler, daemon=True).start()
+
+uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
