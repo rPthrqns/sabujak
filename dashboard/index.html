@@ -13,9 +13,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .top-wrap .header,.top-wrap .toolbar{transition:transform .25s,opacity .25s}
 .top-wrap.collapsed .header,.top-wrap.collapsed .toolbar{transform:translateY(-100%);opacity:0;pointer-events:none;position:absolute;width:100%;top:0}
 .top-wrap.collapsed .toolbar{top:32px}
-.top-peek{position:fixed;top:0;left:0;right:0;height:6px;z-index:101;cursor:pointer}
-.top-peek:hover+.top-wrap.collapsed .header,
-.top-peek:hover+.top-wrap.collapsed .toolbar{transform:translateY(0);opacity:1;pointer-events:auto;position:relative;top:auto}
 .top-toggle{position:absolute;left:50%;transform:translateX(-50%);bottom:-14px;background:#1e293b;border:1px solid #334155;border-radius:0 0 6px 6px;padding:0 8px;cursor:pointer;font-size:10px;color:var(--dim);z-index:102;line-height:14px;transition:opacity .2s}
 .top-wrap.collapsed .top-toggle{bottom:auto;top:0;border-radius:0 0 6px 6px;position:fixed;left:50%;transform:translateX(-50%)}
 .header{background:linear-gradient(135deg,#1a1a2e,#16213e);padding:6px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
@@ -257,7 +254,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 </head>
 <body>
 
-<div class="top-peek" onmouseenter="document.getElementById('top-wrap').classList.remove('collapsed');_topAutoHide()" id="top-peek-zone"></div>
 <div class="top-wrap" id="top-wrap">
   <div class="header">
     <h1>🏢 <span>AI Company Hub</span></h1>
@@ -659,8 +655,7 @@ const FLAGS={ko:'🇰🇷',en:'🇺🇸',ja:'🇯🇵',zh:'🇨🇳'};
 let currentLang = localStorage.getItem('hub-lang') || 'ko';
 function _esc(s){if(!s)return '';const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 
-// ─── Top Bar Auto-Collapse ───
-let _topAutoTimer=null;
+// ─── Top Bar Toggle (click only) ───
 function toggleTopBar(){
   const w=document.getElementById('top-wrap');
   const t=document.getElementById('top-toggle');
@@ -672,24 +667,8 @@ function toggleTopBar(){
   }else{
     t.textContent='▲';
     m.style.height='';
-    _topAutoHide();
   }
 }
-function _topAutoHide(){
-  clearTimeout(_topAutoTimer);
-  _topAutoTimer=setTimeout(()=>{
-    const w=document.getElementById('top-wrap');
-    if(!w.matches(':hover'))toggleTopBar();
-  },8000);
-}
-// Keep open while hovering
-document.addEventListener('DOMContentLoaded',()=>{
-  const w=document.getElementById('top-wrap');
-  if(w){
-    w.addEventListener('mouseenter',()=>clearTimeout(_topAutoTimer));
-    w.addEventListener('mouseleave',()=>_topAutoHide());
-  }
-});
 let companies=[],currentCompany=null,lastChatLen=0;
 let currentRightTab='orgchart';
 let currentCenterTab='orgchart';
@@ -1850,17 +1829,64 @@ async function refreshReport(){
   if(!currentCompany)return;
   const panel=document.getElementById('report-panel');
   if(!panel)return;
-  panel.innerHTML='<div style="color:var(--dim);text-align:center;padding:20px">📊 브리핑 로드 중...</div>';
+  panel.innerHTML='<div style="color:var(--dim);text-align:center;padding:20px">📊 로드 중...</div>';
   try{
-    const res=await fetch(`/api/newspaper/${currentCompany}`);
-    const data=await res.json();
-    const brief=data.newspaper||'';
-    if(!brief){panel.innerHTML='<div style="color:var(--dim);text-align:center;padding:20px">아직 브리핑이 없습니다.<br><span style="font-size:10px">에이전트 활동 후 자동 생성됩니다.</span></div>';return;}
-    panel.innerHTML=`<div style="background:var(--card);border-radius:8px;padding:12px;border:1px solid #1e293b">
-      <div style="font-size:12px;font-weight:600;color:#93c5fd;margin-bottom:8px">📰 오늘의 브리핑</div>
-      <div style="font-size:11px;color:var(--text);white-space:pre-wrap;line-height:1.6">${mdToHtml(brief)}</div>
-      <div style="margin-top:8px;font-size:9px;color:var(--dim)">마지막 업데이트: ${new Date().toLocaleString('ko-KR')}</div>
-    </div>`;
+    const [briefRes,standupRes,compRes]=await Promise.all([
+      fetch(`/api/newspaper/${currentCompany}`),
+      fetch(`/api/standup/${currentCompany}/`).catch(()=>null),
+      fetch(`/api/company/${currentCompany}`)
+    ]);
+    const brief=(await briefRes.json()).newspaper||'';
+    const comp=await compRes.json();
+    // Extract daily report results from recurring tasks
+    const dailyTask=(comp.recurring_tasks||[]).find(t=>t.title&&t.title.includes('데일리'));
+    const dailyResults=(dailyTask?.results||[]).filter(r=>r.text&&!r.text.startsWith('오류')).slice(-5).reverse();
+    // Extract standup from each agent
+    const agents=comp.agents||[];
+    let standups=[];
+    for(const a of agents){
+      try{
+        const sr=await fetch(`/api/standup/${currentCompany}/${a.id}`);
+        const sd=await sr.json();
+        if(sd.standup)standups.push({name:a.name,emoji:a.emoji,text:sd.standup});
+      }catch(e){}
+    }
+
+    let html='';
+
+    // 1. Daily Report Results
+    if(dailyResults.length){
+      html+=`<div style="background:var(--card);border-radius:8px;padding:10px;border:1px solid #1e293b;margin-bottom:8px">
+        <div style="font-size:11px;font-weight:600;color:#fbbf24;margin-bottom:6px">📊 데일리 리포트 (최근 ${dailyResults.length}건)</div>
+        ${dailyResults.map(r=>`<div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:4px;border-left:2px solid #334155">
+          <div style="font-size:9px;color:var(--dim);margin-bottom:3px">${r.time||''} · ${r.elapsed?r.elapsed+'초':''}</div>
+          <div style="font-size:10px;color:var(--text);white-space:pre-wrap;line-height:1.5">${mdToHtml(r.text)}</div>
+        </div>`).join('')}
+      </div>`;
+    }
+
+    // 2. Agent Standups
+    if(standups.length){
+      html+=`<div style="background:var(--card);border-radius:8px;padding:10px;border:1px solid #1e293b;margin-bottom:8px">
+        <div style="font-size:11px;font-weight:600;color:#60a5fa;margin-bottom:6px">📋 에이전트 스탠드업</div>
+        ${standups.map(s=>`<div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:4px;border-left:2px solid #3b82f6">
+          <div style="font-size:10px;font-weight:600;color:#e2e8f0;margin-bottom:3px">${_esc(s.emoji)} ${_esc(s.name)}</div>
+          <div style="font-size:10px;color:var(--text);white-space:pre-wrap;line-height:1.4">${_esc(s.text.substring(0,300))}</div>
+        </div>`).join('')}
+      </div>`;
+    }
+
+    // 3. Briefing
+    if(brief){
+      html+=`<div style="background:var(--card);border-radius:8px;padding:10px;border:1px solid #1e293b">
+        <div style="font-size:11px;font-weight:600;color:#93c5fd;margin-bottom:6px">📰 브리핑</div>
+        <div style="font-size:10px;color:var(--text);white-space:pre-wrap;line-height:1.5">${mdToHtml(brief)}</div>
+        <div style="margin-top:6px;font-size:9px;color:var(--dim)">${new Date().toLocaleString('ko-KR')}</div>
+      </div>`;
+    }
+
+    if(!html)html='<div style="color:var(--dim);text-align:center;padding:30px;font-size:11px">아직 리포트가 없습니다.<br><span style="font-size:10px">에이전트 활동 또는 데일리 설정 후 생성됩니다.</span></div>';
+    panel.innerHTML=html;
   }catch(e){panel.innerHTML=`<div style="color:var(--red);padding:20px;font-size:11px">오류: ${e.message}</div>`;}
 }
 
@@ -2097,23 +2123,28 @@ function _getDepth(parentId){
 }
 
 function _renderPlanTask(task,depth){
-  const statusIcon=task.status==='completed'?'✅':task.status==='in_progress'?'🔄':task.status==='blocked'?'❌':'⬜';
-  const titleCls=task.status==='completed'?'done':task.status==='in_progress'?'in_progress':'';
+  const s=task.status||'todo';
+  const statusIcon=s==='done'?'✅':s==='in-progress'?'🔄':s==='blocked'?'❌':'⬜';
+  const titleCls=s==='done'?'done':s==='in-progress'?'in_progress':'';
   const children=cachedPlanTasks.filter(t=>t.parent_id===task.id);
   const total=children.length;
-  const done=children.filter(t=>t.status==='completed').length;
+  const doneCount=children.filter(t=>t.status==='done').length;
   const agent=(companies.find(c=>c.id===currentCompany)?.agents||[]).find(a=>a.id===task.agent_id);
   const agentLabel=agent?`${agent.emoji} ${agent.name}`:'';
   const depthCls=depth>0?`depth-${Math.min(depth,3)}`:'';
+  const timeStr=task.updated_at?task.updated_at.slice(5,16).replace('T',' '):(task.created_at?task.created_at.slice(5,16).replace('T',' '):'');
+  const descSnippet=task.description?`<div style="font-size:9px;color:#64748b;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px">${_esc(task.description.substring(0,60))}</div>`:'';
 
   let html=`<div class="plan-task-item ${depthCls}" id="pti-${task.id}">
     <span class="plan-task-status" onclick="cyclePlanStatus('${task.id}')" title="상태 변경">${statusIcon}</span>
     <div class="plan-task-body">
-      <div class="plan-task-title ${titleCls}">${task.title}</div>
-      ${total>0?`<div class="plan-progress-bar"><div class="plan-progress-fill" style="width:${Math.round(done/total*100)}%"></div></div>`:''}
+      <div class="plan-task-title ${titleCls}">${_esc(task.title)}</div>
+      ${descSnippet}
+      ${total>0?`<div class="plan-progress-bar"><div class="plan-progress-fill" style="width:${Math.round(doneCount/total*100)}%"></div></div>`:''}
       <div class="plan-task-meta">
         ${agentLabel?`<span>${agentLabel}</span>`:''}
-        ${total>0?`<span>${done}/${total} 완료</span>`:''}
+        ${total>0?`<span>${doneCount}/${total}</span>`:''}
+        ${timeStr?`<span style="margin-left:auto;color:#475569">${timeStr}</span>`:''}
       </div>
     </div>
     <div class="plan-task-actions">
@@ -2159,7 +2190,7 @@ async function _submitPlanAdd(parentId){
 async function cyclePlanStatus(taskId){
   const task=cachedPlanTasks.find(t=>t.id===taskId);
   if(!task)return;
-  const cycle={todo:'in_progress',in_progress:'completed',completed:'todo',blocked:'todo'};
+  const cycle={'todo':'in-progress','in-progress':'done','done':'todo','blocked':'todo'};
   const next=cycle[task.status]||'todo';
   task.status=next;
   renderPlanTaskTree();

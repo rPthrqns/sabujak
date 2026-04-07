@@ -263,20 +263,22 @@ def process_task_commands(cid, text, agent_id):
                     results.append(f"🎉 '{t['title']}' 완료 처리")
                     break
     
-    # CEO 자동 계획(plan) 생성: @멘션으로 팀원에게 지시 시 plan_tasks에 자동 반영
-    if agent_id == 'ceo':
-        _auto_generate_plan(cid, text)
+    # 모든 에이전트 응답에서 계획 트리 자동 업데이트
+    _auto_update_plan(cid, agent_id, text)
 
     return results
 
-def _auto_generate_plan(cid, text):
-    """CEO 응답에서 @멘션 지시를 감지해 plan_tasks 트리를 자동 생성/업데이트."""
-    mentions = re.findall(r'@(\w+)\s+(.+?)(?=@\w+|\n\n|$)', text, re.DOTALL)
-    if not mentions:
-        return
+def _auto_update_plan(cid, agent_id, text):
+    """에이전트 응답을 분석하여 plan_tasks 트리를 자동 생성/업데이트.
+    Claude Code의 task system처럼 동작:
+    - CEO: 지시/계획 수립 → 하위 작업 생성
+    - 팀원: 작업 진행/완료 보고 → 상태 업데이트
+    - 모든 기록이 연혁으로 남음
+    """
     existing = db_get_plan_tasks(cid)
-    existing_titles = {t.get('title','').lower() for t in existing}
-    # Root plan (if not exists)
+    existing_titles = {t.get('title','').lower(): t for t in existing}
+
+    # Ensure root node exists
     root_id = None
     for t in existing:
         if not t.get('parent_id'):
@@ -287,34 +289,79 @@ def _auto_generate_plan(cid, text):
         topic = company.get('topic', '') if company else ''
         root = db_add_plan_task(cid, {
             'title': topic or '프로젝트 계획',
-            'description': f'CEO가 수립한 전체 계획',
+            'description': 'CEO가 자동 관리하는 전체 작업 계획',
             'status': 'in-progress',
             'agent_id': 'ceo',
             'sort_order': 0
         })
         root_id = root['id']
+
+    now_iso = datetime.now().isoformat()
+    added = 0
+
+    # 1. @멘션 지시 → 하위 작업 생성
+    mentions = re.findall(r'@(\w+)\s+(.+?)(?=@\w+|\n\n|$)', text, re.DOTALL)
     for target, instruction in mentions:
         instruction = instruction.strip()
         if not instruction or len(instruction) < 3:
             continue
-        title = instruction.split('\n')[0].strip()[:40]
-        if title.lower() in existing_titles:
-            # Update status
-            for t in existing:
-                if t.get('title','').lower() == title.lower() and t.get('status') != 'done':
-                    db_update_plan_task(cid, t['id'], {'status': 'in-progress'})
-                    break
-            continue
-        db_add_plan_task(cid, {
-            'title': title,
-            'description': instruction[:200],
-            'status': 'todo',
-            'agent_id': target.lower(),
-            'parent_id': root_id,
-            'sort_order': len(existing) + 1
-        })
-        existing_titles.add(title.lower())
-    print(f"[auto-plan] {cid}: {len(mentions)} plan tasks from CEO mentions")
+        title = instruction.split('\n')[0].strip()[:50]
+        if title.lower() not in existing_titles:
+            db_add_plan_task(cid, {
+                'title': title,
+                'description': f'[{agent_id.upper()}→@{target.upper()}] {instruction[:200]}',
+                'status': 'in-progress',
+                'agent_id': target.lower(),
+                'parent_id': root_id,
+                'sort_order': len(existing) + added
+            })
+            added += 1
+
+    # 2. 완료 키워드 감지 → 기존 작업 done 처리
+    done_patterns = re.findall(r'(?:완료|완성|마무리|제출|처리 완료|작성 완료|검토 완료|설정 완료)(?:했|했습|하였|됨|되었)', text)
+    if done_patterns:
+        # Mark this agent's in-progress tasks as done
+        for t in existing:
+            if t.get('agent_id') == agent_id and t.get('status') in ('in-progress', 'todo'):
+                db_update_plan_task(cid, t['id'], {'status': 'done'})
+
+    # 3. 진행 키워드 감지 → todo를 in-progress로
+    progress_patterns = re.findall(r'(?:시작|진행|작업 중|분석 중|준비 중|검토 중|작성 중|설계 중)', text)
+    if progress_patterns and not done_patterns:
+        for t in existing:
+            if t.get('agent_id') == agent_id and t.get('status') == 'todo':
+                db_update_plan_task(cid, t['id'], {'status': 'in-progress'})
+                break  # Only first one
+
+    # 4. CEO가 계획을 세우면 (목록/번호 패턴) → 하위 작업 생성
+    if agent_id == 'ceo':
+        # "1. xxx" or "- xxx" 패턴의 계획 항목 감지
+        plan_items = re.findall(r'(?:^|\n)\s*(?:\d+[\.\)]\s*|[-•]\s+)(.{5,60}?)(?:\n|$)', text)
+        for item in plan_items[:8]:  # Max 8 per response
+            title = item.strip().rstrip('.,;:')
+            if len(title) < 5 or title.lower() in existing_titles:
+                continue
+            # Skip if it looks like a status report rather than a plan
+            if any(kw in title for kw in ['완료', '확인', '정상', '없음', '있음']):
+                continue
+            db_add_plan_task(cid, {
+                'title': title,
+                'description': f'[CEO 계획] {now_iso[:16]}',
+                'status': 'todo',
+                'agent_id': 'ceo',
+                'parent_id': root_id,
+                'sort_order': len(existing) + added
+            })
+            added += 1
+
+    # 5. Root 상태 업데이트: 모든 하위가 done이면 root도 done
+    if existing:
+        children = [t for t in db_get_plan_tasks(cid) if t.get('parent_id') == root_id]
+        if children and all(t.get('status') == 'done' for t in children):
+            db_update_plan_task(cid, root_id, {'status': 'done'})
+
+    if added:
+        print(f"[auto-plan] {cid}/{agent_id}: +{added} plan tasks")
 
 def _post_local(url, data, retries=3):
     """POST to localhost with retry on connection failure."""
@@ -1249,11 +1296,15 @@ def start_task_thread(cid, task):
                 next_run = datetime.fromisoformat(t.get('next_run', datetime.now().isoformat()))
                 wait_secs = (next_run - datetime.now()).total_seconds()
                 if wait_secs > 0:
-                    time.sleep(min(wait_secs, 60))
-                else:
-                    time.sleep(1)
+                    # Sleep in 60s chunks to allow status checks
+                    while wait_secs > 0 and key in _running_task_threads:
+                        time.sleep(min(wait_secs, 60))
+                        wait_secs -= 60
+                    continue  # Re-check status after waiting
             except:
-                time.sleep(5)
+                time.sleep(60)
+                continue
+            # Time to execute — update next_run FIRST to prevent re-trigger
             company = get_company(cid)
             if not company:
                 break
@@ -1262,6 +1313,13 @@ def start_task_thread(cid, task):
             if not t or t['status'] != 'running':
                 _running_task_threads.discard(key)
                 break
+            interval = max(t.get('interval_minutes', 1440), 1)
+            new_next = (datetime.now() + __import__('datetime').timedelta(minutes=interval)).isoformat()
+            for x in tasks:
+                if x['id'] == t['id']:
+                    x['next_run'] = new_next
+                    break
+            update_company(cid, {'recurring_tasks': tasks})
             try:
                 result = execute_task(cid, t)
                 company = get_company(cid)
@@ -1270,14 +1328,12 @@ def start_task_thread(cid, task):
                     for x in tasks:
                         if x['id'] == t['id']:
                             x['last_run'] = datetime.now().isoformat()
-                            x['next_run'] = (datetime.now() + __import__('datetime').timedelta(minutes=x['interval_minutes'])).isoformat()
                             x['results'].append(result)
                             x['results'] = x['results'][-10:]
                             break
                     update_company(cid, {'recurring_tasks': tasks})
             except Exception as e:
                 print(f"[WARN] task {task['id']} execution error: {e}")
-                time.sleep(30)
         _running_task_threads.discard(key)
     threading.Thread(target=_run, daemon=True).start()
 
@@ -1445,6 +1501,7 @@ _ACTIVE_SEMAPHORE = threading.Semaphore(_MAX_CONCURRENT)
 _newspaper_cache = {}  # {cid: (brief, timestamp)}
 _AB_RESULTS = {}  # {test_id: {status, agents: [{agent_id, response, elapsed}]}}
 _AB_RESULTS_LOCK = threading.Lock()
+_ESCALATION_COUNTS = {}  # {"cid:agent_id": count} — prevent infinite escalation loops
 
 
 def _clean_mention_counts(now_ts=None):
@@ -1747,29 +1804,33 @@ def nudge_agent(cid, text, target):
                 if reply_raw and 'No reply from agent' not in reply_raw:
                     session_id = new_session  # Use new session going forward
 
-            # All attempts failed — escalation chain
+            # All attempts failed — escalation chain (with loop prevention)
             if not reply_raw or 'No reply from agent' in reply_raw:
-                print(f"[nudge] {agent_id} ALL FAILED, escalating...")
+                esc_key = f"{cid}:{aid}"
+                esc_count = _ESCALATION_COUNTS.get(esc_key, 0) + 1
+                _ESCALATION_COUNTS[esc_key] = esc_count
+                print(f"[nudge] {agent_id} ALL FAILED (escalation #{esc_count})")
                 escalated = False
                 comp = get_company(cid)
-                if comp and aid != 'ceo':
-                    # Escalate to parent_agent or CEO
-                    parent = next((a for a in comp.get('agents',[]) if a['id']==(agent.get('parent_agent') or 'ceo')), None)
-                    if parent and parent['id'] != aid:
-                        esc_text = f"⚠️ [{agent_name}]가 작업에 실패했습니다. 원래 지시: {text[:100]}\n이 작업을 대신 처리하거나 다른 방법을 제안해주세요."
-                        print(f"[escalation] {aid} → {parent['id']}: {text[:50]}")
-                        append_chat(cid, {"from": "시스템", "emoji": "🔺", "text": f"에스컬레이션: {agent_name} → {parent['name']} (응답 실패)", "time": datetime.now().strftime('%H:%M'), "type": "system"}, broadcast=True)
-                        threading.Thread(target=nudge_agent, args=(cid, esc_text, parent['id'].upper()), daemon=True).start()
+                if esc_count <= 2:  # Max 2 escalations per agent
+                    if comp and aid != 'ceo':
+                        parent = next((a for a in comp.get('agents',[]) if a['id']==(agent.get('parent_agent') or 'ceo')), None)
+                        if parent and parent['id'] != aid:
+                            esc_text = f"⚠️ [{agent_name}]가 작업에 실패했습니다. 원래 지시: {text[:100]}\n이 작업을 대신 처리하거나 다른 방법을 제안해주세요."
+                            print(f"[escalation] {aid} → {parent['id']}: {text[:50]}")
+                            append_chat(cid, {"from": "시스템", "emoji": "🔺", "text": f"에스컬레이션: {agent_name} → {parent['name']} (응답 실패)", "time": datetime.now().strftime('%H:%M'), "type": "system"}, broadcast=True)
+                            threading.Thread(target=nudge_agent, args=(cid, esc_text, parent['id'].upper()), daemon=True).start()
+                            escalated = True
+                    elif comp and aid == 'ceo':
+                        append_approval(cid, {
+                            'id': str(uuid.uuid4())[:8], 'from_agent': 'CEO', 'from_emoji': '👔',
+                            'type': '에스컬레이션', 'detail': f"CEO가 처리하지 못한 작업:\n{text[:300]}",
+                            'status': 'pending', 'time': datetime.now().strftime('%H:%M'),
+                            'created_at': datetime.now().isoformat()
+                        })
                         escalated = True
-                elif comp and aid == 'ceo':
-                    # CEO failed — escalate to master via approval
-                    append_approval(cid, {
-                        'id': str(uuid.uuid4())[:8], 'from_agent': 'CEO', 'from_emoji': '👔',
-                        'type': '에스컬레이션', 'detail': f"CEO가 처리하지 못한 작업:\n{text[:300]}",
-                        'status': 'pending', 'time': datetime.now().strftime('%H:%M'),
-                        'created_at': datetime.now().isoformat()
-                    })
-                    escalated = True
+                else:
+                    print(f"[escalation] {esc_key} max reached ({esc_count}), stopping")
                 if not escalated:
                     try:
                         lang = comp.get('lang', 'ko') if comp else 'ko'
@@ -1781,6 +1842,7 @@ def nudge_agent(cid, text, target):
                 reply_raw = ''
 
             if reply_raw and 'No reply from agent' not in reply_raw:
+                _ESCALATION_COUNTS.pop(f"{cid}:{aid}", None)  # Reset on success
                 lines = reply_raw.split('\n')
                 clean = '\n'.join(l for l in lines
                                   if not l.startswith('[') and not l.startswith('(agent') and l.strip()).strip()
