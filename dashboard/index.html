@@ -236,6 +236,16 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .preset-btn:hover{background:#253047;border-color:var(--accent);color:#e2e8f0}
 .sub-tab{background:transparent;border:none;padding:3px 6px;border-radius:4px;font-size:9px;color:var(--dim);cursor:pointer;transition:all .15s}
 .sub-tab:hover{color:var(--text)}
+.feed-item{display:flex;gap:6px;padding:4px 0;border-bottom:1px solid rgba(30,41,59,.5);animation:fadeIn .3s;align-items:flex-start}
+.feed-item .feed-time{font-size:8px;color:#475569;min-width:32px;flex-shrink:0;margin-top:2px}
+.feed-item .feed-emoji{font-size:12px;flex-shrink:0}
+.feed-item .feed-body{flex:1;min-width:0;line-height:1.4}
+.feed-item .feed-action{color:#60a5fa;font-weight:600}
+.feed-item .feed-target{color:#a78bfa}
+.feed-item .feed-text{color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.feed-item.approval{background:rgba(251,191,36,.05);border-left:2px solid #fbbf24;padding-left:6px;border-radius:4px;margin:2px 0}
+.feed-item.approval .feed-btns{display:flex;gap:3px;margin-top:3px}
+.feed-item.approval .feed-btns button{border:none;border-radius:3px;padding:2px 8px;font-size:9px;cursor:pointer}
 .sub-tab.active{background:var(--accent);color:white}
 .emoji-opt:hover,.emoji-opt.selected{background:#253047;transform:scale(1.2)}
 .empty-state{text-align:center;padding:40px;color:var(--dim)}
@@ -331,13 +341,23 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
       <!-- ① 조직 탭 -->
       <div class="tab-pane active" id="tab-orgchart" style="position:relative;flex-direction:column">
         <svg id="agent-graph" style="display:none;width:0;height:0;position:absolute"></svg>
-        <svg id="org-inline-svg" style="width:100%;flex:1"></svg>
-        <div style="display:flex;gap:4px;padding:6px 10px;border-top:1px solid #1e293b;flex-shrink:0;flex-wrap:wrap">
-          <button onclick="openAgentModal()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:5px 10px;font-size:10px;cursor:pointer">＋ 에이전트</button>
-          <button onclick="openMeetingModal()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:5px 10px;font-size:10px;cursor:pointer">🏛️ 회의</button>
-          <button onclick="openAbModal()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:5px 10px;font-size:10px;cursor:pointer">🧪 A/B</button>
-          <button onclick="openCommPermsModal()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:5px 10px;font-size:10px;cursor:pointer">🔗 통신</button>
-          <button onclick="openOrgChart()" style="margin-left:auto;background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:5px 10px;font-size:10px;cursor:pointer">⛶</button>
+        <!-- Org chart + Live feed split -->
+        <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+          <svg id="org-inline-svg" style="width:100%;flex:0 0 auto;max-height:45%"></svg>
+          <!-- Live Activity Feed -->
+          <div style="flex:1;border-top:1px solid #1e293b;display:flex;flex-direction:column;min-height:0">
+            <div style="padding:4px 10px;display:flex;align-items:center;gap:4px;flex-shrink:0;background:#0a0a1a">
+              <span style="font-size:9px;font-weight:600;color:var(--dim)">⚡ LIVE</span>
+              <span id="live-feed-count" style="font-size:8px;color:#475569"></span>
+              <div style="margin-left:auto;display:flex;gap:3px">
+                <button onclick="openAgentModal()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer">＋</button>
+                <button onclick="openMeetingModal()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer">🏛️</button>
+                <button onclick="openCommPermsModal()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer">🔗</button>
+                <button onclick="openOrgChart()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer">⛶</button>
+              </div>
+            </div>
+            <div id="live-feed" style="flex:1;overflow-y:auto;padding:4px 8px;font-size:10px"></div>
+          </div>
         </div>
         <div id="org-inline-panel" style="position:absolute;inset:0;background:#0f172a;padding:12px;overflow-y:auto;display:none;z-index:5">
           <div id="org-inline-panel-content"></div>
@@ -873,9 +893,12 @@ async function refreshCompany(){
   const res=await fetch(`/api/company/${currentCompany}`);const c=await res.json();
   document.getElementById('chat-messages').innerHTML='';
   renderCompanyUI(c);
+  // Load recent chat into feed (last 10 only, no flood)
+  _feedItems.length=0;
+  if(c.chat)(c.chat||[]).slice(-10).forEach(m=>_feedFromChat(m));
+  renderLiveFeed();
   if(c.chat)c.chat.forEach(m=>appendChat(m));
   lastChatLen=(c.chat||[]).length;
-  // Fetch extra data
   fetchExtras();
 }
 
@@ -1323,6 +1346,7 @@ function mdToHtml(text){
 const MAX_VISIBLE_MESSAGES=50;
 
 function appendChat(m){
+  _feedFromChat(m);
   const el=document.getElementById('chat-messages'),isUser=m.type==='user',isSystem=m.type==='system';
   if(isSystem){
     el.innerHTML+=`<div style="text-align:center;padding:8px;font-size:11px;color:var(--dim)">${_esc(m.text||'')}</div>`;
@@ -1850,6 +1874,73 @@ async function deleteMilestone(mid){
   if(!confirm('삭제?'))return;
   await fetch(`/api/milestone/${currentCompany}/${mid}`,{method:'DELETE'});
   toast('🗑 삭제됨');renderMilestones();
+}
+
+// ─── Live Activity Feed ───
+const _feedItems=[];
+const MAX_FEED=50;
+
+function addFeedItem(type, emoji, agent, action, detail, extra){
+  const time=new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+  _feedItems.unshift({type,emoji,agent,action,detail:detail||'',extra:extra||{},time});
+  if(_feedItems.length>MAX_FEED)_feedItems.length=MAX_FEED;
+  renderLiveFeed();
+}
+
+function renderLiveFeed(){
+  const el=document.getElementById('live-feed');
+  if(!el)return;
+  const countEl=document.getElementById('live-feed-count');
+  if(countEl)countEl.textContent=`${_feedItems.length}`;
+  el.innerHTML=_feedItems.map(f=>{
+    const isApproval=f.type==='approval';
+    const cls=isApproval?'feed-item approval':'feed-item';
+    let html=`<div class="${cls}">
+      <span class="feed-time">${f.time}</span>
+      <span class="feed-emoji">${f.emoji||'📌'}</span>
+      <div class="feed-body">
+        <span class="feed-action">${_esc(f.agent||'')}</span> ${_esc(f.action||'')}`;
+    if(f.detail){
+      html+=` <span class="feed-text">${_esc(f.detail.substring(0,80))}</span>`;
+    }
+    if(isApproval&&f.extra.id){
+      html+=`<div class="feed-btns">
+        <button onclick="resolveApproval('${f.extra.id}','approved')" style="background:#064e3b;color:#6ee7b7">✅</button>
+        <button onclick="resolveApproval('${f.extra.id}','rejected')" style="background:#7f1d1d;color:#fca5a5">❌</button>
+        <button onclick="switchCenterTab('manage')" style="background:#1e293b;color:#94a3b8">상세</button>
+      </div>`;
+    }
+    html+=`</div></div>`;
+    return html;
+  }).join('');
+}
+
+// Hook into existing events to populate feed
+function _feedFromChat(m){
+  if(!m||m.type==='system')return;
+  const mentions=(m.text||'').match(/@(\w+)/g);
+  if(mentions){
+    const targets=mentions.map(t=>t.slice(1)).join(', ');
+    addFeedItem('mention',m.emoji||'💬',m.from,`→ ${targets}`,m.text);
+  }else if(m.type==='agent'){
+    addFeedItem('response',m.emoji||'🤖',m.from,'응답',m.text);
+  }else if(m.type==='user'){
+    addFeedItem('command','👤',m.from,'지시',m.text);
+  }
+}
+
+function _feedFromApproval(a){
+  addFeedItem('approval','📋',a.from_agent||'','기안 제출',a.title||a.detail,{id:a.id});
+}
+
+function _feedFromThinking(d){
+  const agent=d.agent_id?.toUpperCase()||'?';
+  addFeedItem('thinking','⚡',agent,'작업 중...',d.prompt_preview||'');
+}
+
+function _feedFromDone(d){
+  const agent=d.agent_id?.toUpperCase()||'?';
+  addFeedItem('done','✅',agent,'작업 완료','');
 }
 
 // ─── Agent Model Change ───
@@ -2717,6 +2808,7 @@ function connectSSE(){
     }
     // Show thinking status in chat
     if(d.cid===currentCompany){
+      _feedFromThinking(d);
       const typingEl=document.getElementById('typing');
       const whoEl=document.getElementById('typing-who');
       typingEl.classList.add('show');
@@ -2748,6 +2840,7 @@ function connectSSE(){
       const remaining=Object.keys(agentThinking).map(k=>k.split(':')[1]?.toUpperCase()).join(', ');
       document.getElementById('typing-who').textContent=`${remaining} 생각 중...`;
     }
+    _feedFromDone(d);
     if(d.cid===currentCompany&&currentCenterTab==='orgchart')renderInlineOrgChart();
   }catch(err){console.warn('SSE agent_done parse error',err)}});
   es.addEventListener('approval',e=>{try{
@@ -2767,6 +2860,8 @@ function connectSSE(){
         cachedApprovals=data;
         renderApprovals();
         _updateApprovalBadge();
+        // Feed new approvals
+        data.filter(a=>a.status==='pending').forEach(a=>_feedFromApproval(a));
       }).catch(()=>{});
     }
   }catch(err){console.warn('SSE approval parse error',err)}});
