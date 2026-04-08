@@ -1,0 +1,25 @@
+{
+  "agent_templates": {
+    "ceo": {"name": "CEO", "role": {"ko":"총괄","en":"Executive","ja":"総責任者","zh":"总负责人"}, "emoji": "👔"},
+    "cmo": {"name": "CMO", "role": {"ko":"마케팅","en":"Marketing","ja":"マーケティング","zh":"市场"}, "emoji": "📈"},
+    "cto": {"name": "CTO", "role": {"ko":"기술/개발","en":"Tech/Dev","ja":"技術/開発","zh":"技术/开发"}, "emoji": "💻"},
+    "cfo": {"name": "CFO", "role": {"ko":"재무","en":"Finance","ja":"財務","zh":"财务"}, "emoji": "💰"},
+    "designer": {"name": "Designer", "role": {"ko":"디자인","en":"Design","ja":"デザイン","zh":"设计"}, "emoji": "🎨"},
+    "hr": {"name": "HR", "role": {"ko":"인사","en":"HR","ja":"人事","zh":"人事"}, "emoji": "🤝"},
+    "sales": {"name": "Sales", "role": {"ko":"영업","en":"Sales","ja":"営業","zh":"销售"}, "emoji": "📊"},
+    "legal": {"name": "Legal", "role": {"ko":"법무","en":"Legal","ja":"法務","zh":"法务"}, "emoji": "⚖️"},
+    "support": {"name": "Support", "role": {"ko":"고객지원","en":"Support","ja":"サポート","zh":"客服"}, "emoji": "🎧"}
+  },
+  "topic_orgs": {
+    "default": ["ceo", "cmo", "cto"],
+    "marketing": ["ceo", "cmo", "designer", "cto"],
+    "development": ["ceo", "cto", "designer"],
+    "ecommerce": ["ceo", "cmo", "cto", "sales", "support"],
+    "finance": ["ceo", "cfo", "legal"],
+    "recruitment": ["ceo", "hr", "cmo"],
+    "restaurant": ["ceo", "cmo", "designer"],
+    "education": ["ceo", "cmo", "cto", "support"],
+    "healthcare": ["ceo", "cfo", "legal", "cmo"],
+    "realestate": ["ceo", "sales", "cmo", "legal", "cto"]
+  }
+}

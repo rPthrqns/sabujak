@@ -68,31 +68,16 @@ _running_task_threads = set()
 # ─── Runtime Abstraction ───
 RUNTIME = get_runtime('openclaw')
 
-# Default agent templates per role
-AGENT_TEMPLATES = {
-    "ceo": {"name": "CEO", "role": {"ko":"총괄","en":"Executive","ja":"総責任者","zh":"总负责人"}, "emoji": "👔"},
-    "cmo": {"name": "CMO", "role": {"ko":"마케팅","en":"Marketing","ja":"マーケティング","zh":"市场"}, "emoji": "📈"},
-    "cto": {"name": "CTO", "role": {"ko":"기술/개발","en":"Tech/Dev","ja":"技術/開発","zh":"技术/开发"}, "emoji": "💻"},
-    "cfo": {"name": "CFO", "role": {"ko":"재무","en":"Finance","ja":"財務","zh":"财务"}, "emoji": "💰"},
-    "designer": {"name": "Designer", "role": {"ko":"디자인","en":"Design","ja":"デザイン","zh":"设计"}, "emoji": "🎨"},
-    "hr": {"name": "HR", "role": {"ko":"인사","en":"HR","ja":"人事","zh":"人事"}, "emoji": "🤝"},
-    "sales": {"name": "Sales", "role": {"ko":"영업","en":"Sales","ja":"営業","zh":"销售"}, "emoji": "📊"},
-    "legal": {"name": "Legal", "role": {"ko":"법무","en":"Legal","ja":"法務","zh":"法务"}, "emoji": "⚖️"},
-    "support": {"name": "Support", "role": {"ko":"고객지원","en":"Support","ja":"サポート","zh":"客服"}, "emoji": "🎧"},
-}
-
-TOPIC_ORGS = {
-    "default": ["ceo", "cmo", "cto"],
-    "marketing": ["ceo", "cmo", "designer", "cto"],
-    "development": ["ceo", "cto", "designer"],
-    "ecommerce": ["ceo", "cmo", "cto", "sales", "support"],
-    "finance": ["ceo", "cfo", "legal"],
-    "recruitment": ["ceo", "hr", "cmo"],
-    "restaurant": ["ceo", "cmo", "designer"],
-    "education": ["ceo", "cmo", "cto", "support"],
-    "healthcare": ["ceo", "cfo", "legal", "cmo"],
-    "realestate": ["ceo", "sales", "cmo", "legal", "cto"],
-}
+# Load agent templates and topic orgs from config.json (editable by users)
+_CONFIG_PATH = Path(__file__).parent / "config.json"
+def _load_config():
+    try:
+        return json.loads(_CONFIG_PATH.read_text(encoding='utf-8'))
+    except Exception:
+        return {}
+_config = _load_config()
+AGENT_TEMPLATES = _config.get('agent_templates', {})
+TOPIC_ORGS = _config.get('topic_orgs', {"default": ["ceo", "cmo", "cto"]})
 
 LANG = {"ko":"한국어","en":"English","ja":"日本語","zh":"中文"}
 
@@ -108,14 +93,74 @@ ROLE_MAP = {
     'pr': ('홍보팀', '홍보 및 PR', '🎤'), 'planner': ('기획자', '서비스 기획', '📝'),
 }
 
-# ─── Task Status Constants ───
-TASK_STATUSES = ["대기", "진행중", "완료", "검토"]
-VALID_TASK_TRANSITIONS = {
-    "대기": ["진행중"],
-    "진행중": ["완료", "대기"],
-    "완료": ["검토", "진행중"],
-    "검토": ["완료", "진행중"],
+# ─── Task Status (i18n) ───
+TASK_STATUS_I18N = {
+    'waiting':    {'ko': '대기',   'en': 'Waiting',     'ja': '待機',   'zh': '等待'},
+    'in_progress':{'ko': '진행중', 'en': 'In Progress',  'ja': '進行中', 'zh': '进行中'},
+    'done':       {'ko': '완료',   'en': 'Done',         'ja': '完了',   'zh': '完成'},
+    'review':     {'ko': '검토',   'en': 'Review',       'ja': 'レビュー','zh': '审核'},
 }
+def _ts(key, lang='ko'):
+    """Get localized task status name."""
+    return TASK_STATUS_I18N.get(key, {}).get(lang, TASK_STATUS_I18N.get(key, {}).get('en', key))
+
+def _ts_reverse(text, lang='ko'):
+    """Reverse lookup: localized status name → internal key."""
+    for key, names in TASK_STATUS_I18N.items():
+        if names.get(lang, '') == text or names.get('en', '') == text:
+            return key
+    return text
+
+TASK_STATUSES = [_ts('waiting'), _ts('in_progress'), _ts('done'), _ts('review')]
+VALID_TASK_TRANSITIONS = {
+    _ts('waiting'): [_ts('in_progress')],
+    _ts('in_progress'): [_ts('done'), _ts('waiting')],
+    _ts('done'): [_ts('review'), _ts('in_progress')],
+    _ts('review'): [_ts('done'), _ts('in_progress')],
+}
+
+# ─── Pattern Detection (i18n) ───
+DETECT_PATTERNS = {
+    'ko': {
+        'start': r'(?:작성|수립|구축|개발|제작|준비|기획|설계|구현|검토|분석|실행|진행|도입|설정)하?겠습니다',
+        'done': r'(?:완료|완성|마무리|제출|완료했습니다|완성했습니다)\s*(?:하였습니다|했습니다)?',
+        'plan_done': r'(?:완료|완성|마무리|제출|처리 완료|작성 완료|검토 완료|설정 완료)(?:했|했습|하였|됨|되었)',
+        'plan_progress': r'(?:시작|진행|작업 중|분석 중|준비 중|검토 중|작성 중|설계 중)',
+        'task_extract': r'(?:를|을|해|부탁|작성|수립|준비|보고|제출|검토|확인|수정|업데이트)',
+        'approval_keywords': ['승인','결재','기안','요청','허가','구매','예산','채용','계약'],
+        'skip_plan': ['완료', '확인', '정상', '없음', '있음'],
+    },
+    'en': {
+        'start': r'(?:will|going to|starting|implementing|building|creating|designing|analyzing)',
+        'done': r'(?:completed|finished|done|delivered|submitted)',
+        'plan_done': r'(?:completed|finished|done|delivered|submitted|resolved)',
+        'plan_progress': r'(?:starting|working on|analyzing|preparing|reviewing|building)',
+        'task_extract': r'(?:please|create|build|prepare|submit|review|update|analyze)',
+        'approval_keywords': ['approval','budget','purchase','hire','contract','authorize'],
+        'skip_plan': ['completed', 'confirmed', 'normal', 'none', 'exists'],
+    },
+    'ja': {
+        'start': r'(?:作成|構築|開発|制作|準備|企画|設計|実装|検討|分析|実行|導入|設定)します',
+        'done': r'(?:完了|完成|終了|提出|納品)',
+        'plan_done': r'(?:完了|完成|終了|提出)(?:しました|した|済)',
+        'plan_progress': r'(?:開始|進行|作業中|分析中|準備中|検討中)',
+        'task_extract': r'(?:を|で|作成|準備|報告|提出|検討|確認|修正)',
+        'approval_keywords': ['承認','決裁','起案','要請','許可','購入','予算','採用','契約'],
+        'skip_plan': ['完了', '確認', '正常', 'なし', 'あり'],
+    },
+    'zh': {
+        'start': r'(?:编写|构建|开发|制作|准备|策划|设计|实现|审查|分析|执行|引入|设置)',
+        'done': r'(?:完成|完毕|结束|提交|交付)',
+        'plan_done': r'(?:完成|完毕|结束|提交|交付)(?:了|完)',
+        'plan_progress': r'(?:开始|进行|工作中|分析中|准备中|审查中)',
+        'task_extract': r'(?:请|创建|构建|准备|提交|审查|更新|分析)',
+        'approval_keywords': ['审批','预算','采购','招聘','合同','授权'],
+        'skip_plan': ['完成', '确认', '正常', '没有', '存在'],
+    },
+}
+
+def _get_patterns(lang='ko'):
+    return DETECT_PATTERNS.get(lang, DETECT_PATTERNS['en'])
 
 # ─── Cost / Budget ───
 DEFAULT_BUDGET = float(os.environ.get('DEFAULT_BUDGET', 10.0))
@@ -172,17 +217,18 @@ def can_communicate(company, from_id, to_id):
         return to_id.lower() in [a.lower() for a in allowed]
     return True
 
-def extract_task_from_instruction(text):
-    """멘션 내용에서 작업명을 추출"""
+def extract_task_from_instruction(text, lang="ko"):
+    """Extract task name from instruction text."""
     text = text.strip().strip('"').strip()
     # 대시/불필요한 접두사 제거
-    text = re.sub(r'^[\s\-—–·•◆▶"",\']+\s*', '', text)
+    # Remove prefixes
     if not text: return None
-    # 짧은 지시는 그대로
+    # Short instruction → use as-is
     if len(text) <= 30 and len(text) >= 2:
         return text
-    # 명령형 패턴: "~해주세요", "~부탁드립니다" → 앞부분 추출
-    m = re.match(r'(.{2,25}?)(?:를|을|해|부탁|작성|수립|준비|보고|제출|검토|확인|수정|업데이트)', text)
+    # Command pattern extraction
+    patterns = _get_patterns(lang)
+    m = re.match(r'(.{2,25}?)' + patterns['task_extract'], text)
     if m:
         title = m.group(1).strip()
         if len(title) >= 2:
@@ -302,7 +348,8 @@ def process_task_commands(cid, text, agent_id):
         board_tasks = db_get_tasks(cid)
         agent = next((a for a in company.get('agents', []) if a['id'] == agent_id), None)
         
-        start_patterns = re.findall(r'(?:작성|수립|구축|개발|제작|준비|기획|설계|구현|검토|분석|실행|진행|도입|설정)하?겠습니다[:\s]*([^\n.]{2,30})', text)
+        patterns = _get_patterns(company.get('lang','ko') if company else 'ko')
+        start_patterns = re.findall(patterns['start'] + r'[:\s]*([^\n.]{2,30})', text)
         for title in start_patterns:
             title = title.strip().rstrip('.,;')
             if len(title) < 2: continue
@@ -311,7 +358,7 @@ def process_task_commands(cid, text, agent_id):
             if task:
                 results.append(f"📋 '{title}' 자동 추가됨 (진행)")
         
-        done_patterns = re.findall(r'(?:완료|완성|마무리|제출|완료했습니다|완성했습니다)\s*(?:하였습니다|했습니다)?[:\s]*([^\n.]{2,30})', text)
+        done_patterns = re.findall(patterns['done'] + r'[:\s]*([^\n.]{2,30})', text)
         for title in done_patterns:
             title = title.strip().rstrip('.,;')
             for t in board_tasks:
@@ -375,7 +422,8 @@ def _auto_update_plan(cid, agent_id, text):
             added += 1
 
     # 2. 완료 키워드 감지 → 기존 작업 done 처리
-    done_patterns = re.findall(r'(?:완료|완성|마무리|제출|처리 완료|작성 완료|검토 완료|설정 완료)(?:했|했습|하였|됨|되었)', text)
+    plan_patterns = _get_patterns('ko')  # TODO: get from company lang
+    done_patterns = re.findall(plan_patterns['plan_done'], text)
     if done_patterns:
         # Mark this agent's in-progress tasks as done
         for t in existing:
@@ -383,7 +431,7 @@ def _auto_update_plan(cid, agent_id, text):
                 db_update_plan_task(cid, t['id'], {'status': 'done'})
 
     # 3. 진행 키워드 감지 → todo를 in-progress로
-    progress_patterns = re.findall(r'(?:시작|진행|작업 중|분석 중|준비 중|검토 중|작성 중|설계 중)', text)
+    progress_patterns = re.findall(plan_patterns['plan_progress'], text)
     if progress_patterns and not done_patterns:
         for t in existing:
             if t.get('agent_id') == agent_id and t.get('status') == 'todo':
@@ -400,7 +448,7 @@ def _auto_update_plan(cid, agent_id, text):
             if len(title) < 5 or title.lower() in existing_titles:
                 continue
             # Skip if it looks like a status report rather than a plan
-            if any(kw in title for kw in ['완료', '확인', '정상', '없음', '있음']):
+            if any(kw in title for kw in plan_patterns.get('skip_plan', [])):
                 continue
             db_add_plan_task(cid, {
                 'title': title,
