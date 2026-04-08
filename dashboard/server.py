@@ -4132,6 +4132,59 @@ async def api_set_agent_model(cid: str, agent_id: str, request: Request):
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+# ─── i18n API ──────────────────────────────────────────────────────────────
+
+I18N_DIR = Path(__file__).parent / "i18n"
+I18N_DIR.mkdir(exist_ok=True)
+
+@app.get("/api/i18n/languages")
+def api_i18n_languages():
+    langs = [f.stem for f in I18N_DIR.glob("*.json")]
+    return {"languages": sorted(langs), "setup_done": len(langs) > 0}
+
+@app.get("/api/i18n/{lang}")
+def api_i18n_get(lang: str):
+    f = I18N_DIR / f"{lang}.json"
+    if f.exists():
+        return json.loads(f.read_text(encoding='utf-8'))
+    raise HTTPException(status_code=404, detail=f"not found")
+
+@app.post("/api/i18n/generate")
+async def api_i18n_generate(request: Request):
+    body = await request.json()
+    lang_input = body.get('language', '').strip()
+    if not lang_input:
+        return JSONResponse({"error": "language required"}, status_code=400)
+    en_file = I18N_DIR / "en.json"
+    if not en_file.exists():
+        return JSONResponse({"error": "en.json missing"}, status_code=500)
+    en_strings = json.loads(en_file.read_text(encoding='utf-8'))
+    keys_json = json.dumps(en_strings, indent=2, ensure_ascii=False)
+    prompt = f"Translate these UI strings to {lang_input}. Return ONLY valid JSON, same keys, keep emoji prefixes. Be natural and concise.\n\n{keys_json}"
+    def _gen():
+        try:
+            result = RUNTIME.run('main', f'i18n-{lang_input[:10]}', prompt, timeout=60)
+            m = re.search(r'\{[\s\S]*\}', result)
+            if not m: return {'ok':False,'error':'no JSON in response'}
+            translated = json.loads(m.group())
+            lang_map = {'korean':'ko','english':'en','japanese':'ja','chinese':'zh','spanish':'es','french':'fr','german':'de','portuguese':'pt','russian':'ru','arabic':'ar','hindi':'hi','thai':'th','vietnamese':'vi','indonesian':'id','turkish':'tr','italian':'it'}
+            lang_map.update({chr(0xD55C)+chr(0xAD6D)+chr(0xC5B4):'ko'})
+            lang_code = lang_input[:2].lower()
+            for name, code in lang_map.items():
+                if name in lang_input.lower(): lang_code = code; break
+            (I18N_DIR / f"{lang_code}.json").write_text(json.dumps(translated, indent=2, ensure_ascii=False), encoding='utf-8')
+            print(f"[i18n] Generated {lang_code}.json ({len(translated)} keys)")
+            return {'ok':True,'lang_code':lang_code,'keys':len(translated)}
+        except Exception as e:
+            return {'ok':False,'error':str(e)}
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        try:
+            result = pool.submit(_gen).result(timeout=90)
+            return result
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+
 # ── Static files (must be last — catches everything else) ──────────────────
 
 app.mount("/", StaticFiles(directory=str(BASE / "dashboard"), html=True), name="static")

@@ -264,6 +264,21 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 </head>
 <body>
 
+<!-- Language Setup Overlay (shown only on first visit) -->
+<div id="lang-setup-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:999;display:flex;align-items:center;justify-content:center">
+  <div style="background:linear-gradient(145deg,#0f172a,#1e293b);border:1px solid #334155;border-radius:16px;padding:32px;max-width:400px;width:90%;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)">
+    <div style="font-size:40px;margin-bottom:12px">🌍</div>
+    <div style="font-size:18px;font-weight:700;color:#f1f5f9;margin-bottom:4px">Welcome to AI Company Hub</div>
+    <div style="font-size:12px;color:#94a3b8;margin-bottom:20px">Type your language to set up the interface</div>
+    <input id="lang-setup-input" placeholder="e.g. Korean, English, 日本語, Español..." style="width:100%;background:#0f172a;border:2px solid #334155;border-radius:10px;padding:12px 16px;color:#f1f5f9;font-size:14px;text-align:center;outline:none;box-sizing:border-box;transition:border .2s" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#334155'" onkeydown="if(event.key==='Enter')generateLanguage()">
+    <div id="lang-setup-status" style="font-size:11px;color:#64748b;margin-top:10px;min-height:20px"></div>
+    <div style="display:flex;gap:8px;margin-top:16px;justify-content:center">
+      <button onclick="generateLanguage()" id="lang-setup-btn" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:white;border:none;border-radius:8px;padding:10px 24px;font-size:13px;font-weight:600;cursor:pointer;transition:transform .15s" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform=''">🚀 Set Up</button>
+      <button onclick="skipLanguageSetup()" style="background:transparent;color:#64748b;border:1px solid #334155;border-radius:8px;padding:10px 16px;font-size:12px;cursor:pointer">Skip (English)</button>
+    </div>
+  </div>
+</div>
+
 <div class="top-wrap" id="top-wrap">
   <div class="header">
     <h1>🏢 <span>AI Company Hub</span></h1>
@@ -683,6 +698,76 @@ const UI = {
 const FLAGS={ko:'🇰🇷',en:'🇺🇸',ja:'🇯🇵',zh:'🇨🇳'};
 let currentLang = localStorage.getItem('hub-lang') || 'ko';
 function _esc(s){if(!s)return '';const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+// ─── Language Setup (first visit) ───
+async function _checkLanguageSetup(){
+  try{
+    const res=await fetch('/api/i18n/languages');
+    const data=await res.json();
+    const savedLang=localStorage.getItem('hub-lang');
+    if(data.languages.length<=1&&!savedLang){
+      // Only English base exists — show setup
+      document.getElementById('lang-setup-overlay').style.display='flex';
+      document.getElementById('lang-setup-input').focus();
+    }else{
+      document.getElementById('lang-setup-overlay').style.display='none';
+      // Load saved language
+      if(savedLang&&data.languages.includes(savedLang)){
+        await _loadI18n(savedLang);
+      }
+    }
+  }catch(e){
+    document.getElementById('lang-setup-overlay').style.display='none';
+  }
+}
+async function generateLanguage(){
+  const input=document.getElementById('lang-setup-input').value.trim();
+  if(!input)return;
+  const btn=document.getElementById('lang-setup-btn');
+  const status=document.getElementById('lang-setup-status');
+  btn.disabled=true;btn.textContent='⏳ Generating...';
+  status.textContent='Translating UI with AI... This may take 30-60 seconds.';
+  status.style.color='#60a5fa';
+  try{
+    const res=await fetch('/api/i18n/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({language:input})});
+    const data=await res.json();
+    if(data.ok){
+      status.textContent=`✅ ${data.lang_code} generated! (${data.keys} strings)`;
+      status.style.color='#22c55e';
+      localStorage.setItem('hub-lang',data.lang_code);
+      currentLang=data.lang_code;
+      await _loadI18n(data.lang_code);
+      setTimeout(()=>{document.getElementById('lang-setup-overlay').style.display='none';},1500);
+    }else{
+      status.textContent='❌ '+data.error;
+      status.style.color='#ef4444';
+      btn.disabled=false;btn.textContent='🚀 Retry';
+    }
+  }catch(e){
+    status.textContent='❌ Error: '+e.message;
+    status.style.color='#ef4444';
+    btn.disabled=false;btn.textContent='🚀 Retry';
+  }
+}
+function skipLanguageSetup(){
+  localStorage.setItem('hub-lang','en');
+  currentLang='en';
+  document.getElementById('lang-setup-overlay').style.display='none';
+}
+async function _loadI18n(lang){
+  try{
+    const res=await fetch(`/api/i18n/${lang}`);
+    if(res.ok){
+      const strings=await res.json();
+      if(!UI[lang])UI[lang]={};
+      Object.assign(UI[lang],strings);
+      currentLang=lang;
+      applyLang();
+    }
+  }catch(e){console.warn('i18n load failed',e)}
+}
+// Run on page load
+document.addEventListener('DOMContentLoaded',_checkLanguageSetup);
 
 // ─── Top Bar Toggle (click only) ───
 function toggleTopBar(){
