@@ -1203,8 +1203,8 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji, lang
             f"- Report to master via @Master when done\n"
             f"- Need approval? Use [APPROVAL:category:title:detail]\n"
             f"- NO prep talk. Everything ASAP.\n"
-            f"- NEVER set deadlines, timelines, or schedules (no '1 week', 'D-7', '3 days').\n"
-            f"  You are AI — execute immediately, not later.\n"
+            f"- 기한을 정하지 말고 바로 처리하세요. 일정/마감/타임라인 대신 즉시 실행.\n"
+            f"  AI는 사람과 다릅니다. 계획이 아닌 결과를 내세요.\n"
             f"- NO_REPLY is forbidden.\n\n"
             f"## Context Sources\n"
             f"- Read _shared/newspaper.md for team status\n"
@@ -1493,7 +1493,7 @@ def execute_task(cid, task):
 
 {task['prompt']}
 
-Report results concisely (2-3 lines) to @{leader.upper()}. Do NOT mention @master."""
+Report results concisely to @{leader.upper()}. 기한 없이 바로 처리."""
     start = time.time()
     try:
         proc = subprocess.Popen(
@@ -1922,7 +1922,7 @@ def nudge_agent(cid, text, target):
                 f"\n## Next Steps"
                 f"\n(What happens next, or [APPROVAL:...] if master decision needed)"
                 f"\n"
-                f"\n[RULES] NO prep talk. NO deadlines/timelines/schedules. Act NOW. NO_REPLY forbidden."
+                f"\n[RULES] 기한 없이 바로 처리. 계획이 아닌 결과를 내세요. NO_REPLY 금지."
             )
         else:
             leader_name = get_leader_id(company).upper() if company else 'CEO'
@@ -1940,7 +1940,7 @@ def nudge_agent(cid, text, target):
                 f"\n## Report"
                 f"\n@{leader_name} (summary of results)"
                 f"\n"
-                f"\n[RULES] NO prep talk. NO deadlines. Execute NOW. NO_REPLY forbidden."
+                f"\n[RULES] 기한 없이 바로 처리. 결과를 즉시 보고하세요. NO_REPLY 금지."
             )
         prompt = f"{ctx}{instruction}" if ctx else instruction.strip()
 
