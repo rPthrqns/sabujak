@@ -1152,8 +1152,18 @@ def setup_agent_workspace(agent_workspace, name, role, company_name, emoji, lang
             "- `[TASK_START:name]` Start task\n"
             "- `[CRON_ADD:name:mins:prompt]` Schedule recurring task\n"
             "- `[CRON_DEL:name]` Delete recurring task\n"
-            "- `[APPROVAL:category:title:detail]` Submit approval (기안서)\n"
+            "- `[APPROVAL:category:title:detail]` Submit approval to master\n"
             "  Categories: 예산,구매,프로젝트,인사,정책,기타\n"
+            "\n## When to submit APPROVAL to master\n"
+            "You MUST submit [APPROVAL:...] when:\n"
+            "- A decision requires the master's judgment (strategy direction, priorities)\n"
+            "- Real-world action is needed (purchasing, hiring, signing contracts)\n"
+            "- Budget or cost exceeds normal operations\n"
+            "- External accounts, API keys, credentials, or access are needed\n"
+            "- A major change in project direction is proposed\n"
+            "- Conflicting opinions between team members need resolution\n"
+            "- Legal, compliance, or policy matters arise\n"
+            "Do NOT submit approvals for routine work you can handle yourself.\n"
         )
     if not (agent_workspace / "HEARTBEAT.md").exists() or (agent_workspace / "HEARTBEAT.md").stat().st_size == 0:
         (agent_workspace / "HEARTBEAT.md").write_text(
@@ -1800,7 +1810,9 @@ def nudge_agent(cid, text, target):
                 f"\n3. 팀원 지시: @CMO 구체적지시 @CTO 구체적지시."
                 f"\n4. 계획: 1. 2. 3. 번호 목록."
                 f"\n5. 기한 없음. 최대한 빠르게 즉시 완료."
-                f"\n6. NO_REPLY 금지."
+                f"\n6. 마스터 결정/승인/현실 행동이 필요하면 [APPROVAL:카테고리:제목:상세내용] 명령으로 기안 올리세요."
+                f"\n   (예: 예산, 구매, 인사, 외부 API키, 전략 방향 등)"
+                f"\n7. NO_REPLY 금지."
             )
         else:
             instruction = (
@@ -1809,7 +1821,9 @@ def nudge_agent(cid, text, target):
                 f"\n1. {lang_name}로 구체적인 결과를 즉시 응답."
                 f"\n2. 완료 후 @CEO에게 보고."
                 f"\n3. 기한 없음. 최대한 빠르게 즉시 완료."
-                f"\n4. NO_REPLY 금지."
+                f"\n4. 마스터 결정/승인이 필요하면 [APPROVAL:카테고리:제목:내용]으로 기안 올리세요."
+                f"\n   (예산, 외부 계정, 전략 변경, 팀간 갈등 등)"
+                f"\n5. NO_REPLY 금지."
             )
         prompt = f"{ctx}{instruction}" if ctx else instruction.strip()
 
