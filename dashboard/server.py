@@ -1790,9 +1790,26 @@ def nudge_agent(cid, text, target):
                 f"- [{t.get('agent_id','')}] {t.get('title','')} ({t.get('interval','')}분마다)"
                 for t in recurring[:5]))
         ctx = '\n\n'.join(ctx_parts)
-        report_note = '\n\n⚠️ 작업 완료 후 반드시 결과를 @CEO에게 보고하세요.' if aid != 'ceo' else '\n\n⚠️ 팀원들에게 @CMO @CTO 멘션으로 구체적 업무를 지시하세요.'
-        must_reply = '\n\n🔴 중요: 반드시 한국어로 구체적인 내용을 응답하세요. NO_REPLY 금지. 할 일이 없으면 현재 상황을 보고하세요.'
-        prompt = f"{ctx}\n\n마스터의 지시: {msg}{report_note}{must_reply}" if ctx else f"마스터의 지시: {msg}{report_note}{must_reply}"
+        lang_name = LANG.get(company.get('lang','ko'), '한국어') if company else '한국어'
+        if aid == 'ceo':
+            instruction = (
+                f"\n\n[마스터 지시] {msg}"
+                f"\n\n[CEO 행동 규칙]"
+                f"\n1. {lang_name}로 구체적인 계획/결과를 즉시 응답하세요."
+                f"\n2. '파악하겠습니다', '확인하겠습니다' 같은 준비 발언 금지. 바로 실행하세요."
+                f"\n3. 팀원에게 지시: @CMO 구체적지시 @CTO 구체적지시 형식."
+                f"\n4. 계획: 1. 2. 3. 번호 목록으로 나열."
+                f"\n5. NO_REPLY 절대 금지."
+            )
+        else:
+            instruction = (
+                f"\n\n[지시] {msg}"
+                f"\n\n[행동 규칙]"
+                f"\n1. {lang_name}로 구체적인 결과를 즉시 응답하세요."
+                f"\n2. 완료 후 @CEO에게 보고."
+                f"\n3. NO_REPLY 절대 금지."
+            )
+        prompt = f"{ctx}{instruction}" if ctx else instruction.strip()
 
         nudge_start = time.time()
         try:
