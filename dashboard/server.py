@@ -1923,6 +1923,11 @@ def nudge_agent(cid, text, target):
                 f"\n(What happens next, or [APPROVAL:...] if master decision needed)"
                 f"\n"
                 f"\n[RULES] 기한 없이 바로 처리. 계획이 아닌 결과를 내세요. NO_REPLY 금지."
+                f"\n\n[SYSTEM COMMANDS — USE THESE IN YOUR RESPONSE]"
+                f"\n- [TASK_ADD:작업명:high] — 칸반에 작업 추가"
+                f"\n- [TASK_DONE:작업명] — 작업 완료 처리"
+                f"\n- [APPROVAL:category:title:detail] — 마스터에게 결재 요청"
+                f"\n  Example: [APPROVAL:purchase:서버 구매:AWS EC2 인스턴스 월 $50 필요]"
             )
         else:
             leader_name = get_leader_id(company).upper() if company else 'CEO'
@@ -1941,6 +1946,9 @@ def nudge_agent(cid, text, target):
                 f"\n@{leader_name} (summary of results)"
                 f"\n"
                 f"\n[RULES] 기한 없이 바로 처리. 결과를 즉시 보고하세요. NO_REPLY 금지."
+                f"\n\n[COMMANDS]"
+                f"\n- [TASK_DONE:작업명] — 작업 완료"
+                f"\n- [APPROVAL:category:title:detail] — 결재 요청"
             )
         prompt = f"{ctx}{instruction}" if ctx else instruction.strip()
 
@@ -2070,6 +2078,20 @@ def nudge_agent(cid, text, target):
                 if clean:
                     save_agent_memory(cid, aid, clean)
                     process_task_commands(cid, clean, aid)
+                    # Auto-detect approval intent even without [APPROVAL:] command
+                    if '[APPROVAL:' not in clean:
+                        apr_keywords = ['승인 요청', '승인이 필요', '결재 요청', '예산 승인', 'approval', 'budget approval', 'need approval']
+                        if any(kw in clean.lower() for kw in apr_keywords) and len(clean) > 30:
+                            title = clean.split('\n')[0].strip()[:50]
+                            existing = db_get_approvals(cid)
+                            if not any(a.get('title','') == title and a.get('status') == 'pending' for a in existing):
+                                append_approval(cid, {
+                                    'id': str(uuid.uuid4())[:8], 'from_agent': agent_name, 'from_emoji': emoji,
+                                    'approval_type': 'auto', 'title': title, 'detail': clean[:400],
+                                    'status': 'pending', 'time': datetime.now().strftime('%H:%M'),
+                                    'created_at': datetime.now().isoformat()
+                                })
+                                print(f"[auto-approval] {aid}: {title[:40]}")
                     archive_inbox(cid, aid)
                     _check_user_intervention(cid, clean, agent_name)
                     est_tokens = max(len(clean) // 4, 100)
