@@ -705,15 +705,26 @@ async function _checkLanguageSetup(){
     const res=await fetch('/api/i18n/languages');
     const data=await res.json();
     const savedLang=localStorage.getItem('hub-lang');
-    if(data.languages.length<=1&&!savedLang){
-      // Only English base exists — show setup
+    const I18N_VERSION='2'; // Bump this when UI strings change
+    const savedVersion=localStorage.getItem('hub-i18n-version');
+    const needsSetup=!savedLang||!data.languages.includes(savedLang)||(savedVersion!==I18N_VERSION&&savedLang!=='en');
+    if(needsSetup&&!savedLang){
+      // First visit — show setup
       document.getElementById('lang-setup-overlay').style.display='flex';
       document.getElementById('lang-setup-input').focus();
+    }else if(needsSetup&&savedLang&&savedLang!=='en'){
+      // Version mismatch — regenerate silently
+      document.getElementById('lang-setup-overlay').style.display='none';
+      try{
+        const r=await fetch('/api/i18n/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({language:savedLang})});
+        const d2=await r.json();
+        if(d2.ok){localStorage.setItem('hub-i18n-version',I18N_VERSION);await _loadI18n(d2.lang_code);}
+      }catch(e){console.warn('i18n regen failed',e)}
     }else{
       document.getElementById('lang-setup-overlay').style.display='none';
-      // Load saved language
       if(savedLang&&data.languages.includes(savedLang)){
         await _loadI18n(savedLang);
+        localStorage.setItem('hub-i18n-version',I18N_VERSION);
       }
     }
   }catch(e){
