@@ -35,11 +35,20 @@ from db import (init_db, migrate_from_json, db_get_company, db_save_company, db_
                db_add_audit, db_get_audit,
                db_get_contacts, db_add_contact, db_delete_contact)
 
-# ─── Constants ───
-PORT = 3000
+# ─── Configuration (env overridable) ───
+PORT = int(os.environ.get('PORT', 3000))
 BASE = Path(__file__).resolve().parent.parent
-DATA = BASE / "data"
+DATA = Path(os.environ.get('DATA_DIR', str(BASE / "data")))
 COMPANIES_FILE = DATA / "companies.json"
+
+# ─── Timeouts (seconds) ───
+AGENT_RUN_TIMEOUT = int(os.environ.get('AGENT_TIMEOUT', 90))
+AGENT_RETRY_TIMEOUT = int(os.environ.get('AGENT_RETRY_TIMEOUT', 60))
+AGENT_INIT_TIMEOUT = 30
+AGENT_POLL_INTERVAL = 3
+MAX_CONCURRENT_AGENTS = int(os.environ.get('MAX_CONCURRENT', 2))
+WATCHDOG_INTERVAL = 30
+WATCHDOG_STUCK_THRESHOLD = 90
 SSE_CLIENTS = []          # kept for backward compat reference; not used by FastAPI SSE
 SSE_LOCK = threading.Lock()
 SSE_QUEUES: list = []     # asyncio.Queue per SSE client
@@ -108,9 +117,20 @@ VALID_TASK_TRANSITIONS = {
     "검토": ["완료", "진행중"],
 }
 
-# ─── Cost / Budget Defaults ───
-DEFAULT_BUDGET = 10.0  # USD monthly budget default
-COST_PER_1K_TOKENS = 0.003  # rough estimate for cost calculation
+# ─── Cost / Budget ───
+DEFAULT_BUDGET = float(os.environ.get('DEFAULT_BUDGET', 10.0))
+COST_PER_1K_TOKENS = float(os.environ.get('COST_PER_1K_TOKENS', 0.003))
+
+# ─── Leader/Agent Helpers ───
+def get_leader(company):
+    """Get the leader agent (first agent, typically CEO). No hardcoded role."""
+    agents = company.get('agents', [])
+    return agents[0] if agents else None
+
+def get_leader_id(company):
+    """Get leader agent ID."""
+    leader = get_leader(company)
+    return leader['id'] if leader else 'ceo'
 
 # ─── Utility Functions ───
 
@@ -144,7 +164,8 @@ def can_communicate(company, from_id, to_id):
     if mode == 'all':
         return True
     if mode == 'ceo_only':
-        return from_id.lower() == 'ceo' or to_id.lower() == 'ceo'
+        leader_id = get_leader_id(company)
+        return from_id.lower() == leader_id or to_id.lower() == leader_id
     if mode == 'custom':
         rules = perms.get('custom_rules', {})
         allowed = rules.get(from_id.lower(), [])
@@ -255,10 +276,11 @@ def process_task_commands(cid, text, agent_id):
         agent = next((a for a in company.get('agents',[]) if a['id']==agent_id), None) if company else None
         agent_name = agent.get('name','') if agent else agent_id
         agent_emoji = agent.get('emoji','🤖') if agent else '🤖'
-        # Build approval line: agent → CEO → master
+        # Build approval line: agent → leader → master
+        leader_id = get_leader_id(company) if company else 'ceo'
         approval_line = [agent_id]
-        if agent_id != 'ceo':
-            approval_line.append('ceo')
+        if agent_id != leader_id:
+            approval_line.append(leader_id)
         approval_line.append('master')
         approval = {
             'id': str(uuid.uuid4())[:8], 'from_agent': agent_name, 'from_emoji': agent_emoji,
@@ -324,9 +346,9 @@ def _auto_update_plan(cid, agent_id, text):
         topic = company.get('topic', '') if company else ''
         root = db_add_plan_task(cid, {
             'title': topic or '프로젝트 계획',
-            'description': 'CEO가 자동 관리하는 전체 작업 계획',
+            'description': 'Auto-managed project plan',
             'status': 'in-progress',
-            'agent_id': 'ceo',
+            'agent_id': get_leader_id(company) if company else agent_id,
             'sort_order': 0
         })
         root_id = root['id']
@@ -368,8 +390,9 @@ def _auto_update_plan(cid, agent_id, text):
                 db_update_plan_task(cid, t['id'], {'status': 'in-progress'})
                 break  # Only first one
 
-    # 4. CEO가 계획을 세우면 (목록/번호 패턴) → 하위 작업 생성
-    if agent_id == 'ceo':
+    # 4. Leader creates plan items from numbered lists
+    company_check = get_company(cid)
+    if company_check and agent_id == get_leader_id(company_check):
         # "1. xxx" or "- xxx" 패턴의 계획 항목 감지
         plan_items = re.findall(r'(?:^|\n)\s*(?:\d+[\.\)]\s*|[-•]\s+)(.{5,60}?)(?:\n|$)', text)
         for item in plan_items[:8]:  # Max 8 per response
@@ -381,9 +404,9 @@ def _auto_update_plan(cid, agent_id, text):
                 continue
             db_add_plan_task(cid, {
                 'title': title,
-                'description': f'[CEO 계획] {now_iso[:16]}',
+                'description': f'[{agent_id.upper()} plan]',
                 'status': 'todo',
-                'agent_id': 'ceo',
+                'agent_id': agent_id,
                 'parent_id': root_id,
                 'sort_order': len(existing) + added
             })
@@ -1549,7 +1572,7 @@ _AGENT_STATE_LOCK = threading.Lock()
 _MENTION_COUNTS = {}  # {cid: {chain_key: {'count': int, 'ts': float}}}
 _MENTION_LIMIT = 5    # max mentions per chain
 _MENTION_TTL = 1800   # seconds
-_MAX_CONCURRENT = 2  # max agents thinking at once
+_MAX_CONCURRENT = MAX_CONCURRENT_AGENTS
 _ACTIVE_SEMAPHORE = threading.Semaphore(_MAX_CONCURRENT)
 
 _newspaper_cache = {}  # {cid: (brief, timestamp)}
@@ -1801,7 +1824,8 @@ def nudge_agent(cid, text, target):
                 for t in recurring[:5]))
         ctx = '\n\n'.join(ctx_parts)
         lang_name = LANG.get(company.get('lang','ko'), '한국어') if company else '한국어'
-        if aid == 'ceo':
+        is_leader = (aid == get_leader_id(company)) if company else (aid == 'ceo')
+        if is_leader:
             instruction = (
                 f"\n\n[마스터 지시] {msg}"
                 f"\n\n[CEO 행동 규칙]"
@@ -1885,19 +1909,20 @@ def nudge_agent(cid, text, target):
                 print(f"[nudge] {agent_id} ALL FAILED (escalation #{esc_count})")
                 escalated = False
                 comp = get_company(cid)
+                leader_id = get_leader_id(comp) if comp else 'ceo'
                 if esc_count <= 2:  # Max 2 escalations per agent
-                    if comp and aid != 'ceo':
-                        parent = next((a for a in comp.get('agents',[]) if a['id']==(agent.get('parent_agent') or 'ceo')), None)
+                    if comp and aid != leader_id:
+                        parent = next((a for a in comp.get('agents',[]) if a['id']==(agent.get('parent_agent') or leader_id)), None)
                         if parent and parent['id'] != aid:
-                            esc_text = f"⚠️ [{agent_name}]가 작업에 실패했습니다. 원래 지시: {text[:100]}\n이 작업을 대신 처리하거나 다른 방법을 제안해주세요."
+                            esc_text = f"⚠️ [{agent_name}] failed. Original: {text[:100]}\nPlease handle or suggest alternative."
                             print(f"[escalation] {aid} → {parent['id']}: {text[:50]}")
-                            append_chat(cid, {"from": "시스템", "emoji": "🔺", "text": f"에스컬레이션: {agent_name} → {parent['name']} (응답 실패)", "time": datetime.now().strftime('%H:%M'), "type": "system"}, broadcast=True)
+                            append_chat(cid, {"from": "시스템", "emoji": "🔺", "text": f"Escalation: {agent_name} → {parent['name']}", "time": datetime.now().strftime('%H:%M'), "type": "system"}, broadcast=True)
                             threading.Thread(target=nudge_agent, args=(cid, esc_text, parent['id'].upper()), daemon=True).start()
                             escalated = True
-                    elif comp and aid == 'ceo':
+                    elif comp and aid == leader_id:
                         append_approval(cid, {
-                            'id': str(uuid.uuid4())[:8], 'from_agent': 'CEO', 'from_emoji': '👔',
-                            'type': '에스컬레이션', 'detail': f"CEO가 처리하지 못한 작업:\n{text[:300]}",
+                            'id': str(uuid.uuid4())[:8], 'from_agent': agent_name, 'from_emoji': emoji,
+                            'type': 'escalation', 'detail': f"Leader failed:\n{text[:300]}",
                             'status': 'pending', 'time': datetime.now().strftime('%H:%M'),
                             'created_at': datetime.now().isoformat()
                         })
@@ -2500,7 +2525,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         to_name = to_company.get('name', to_cid)
         if not to_agent:
             agents = to_company.get('agents', [])
-            to_agent = agents[0]['id'] if agents else 'ceo'
+            to_agent = agents[0]['id'] if agents else get_leader_id(to_company)
         outsource_text = (
             f"🔗 [아웃소싱 의뢰] {from_name} → {to_name}\n"
             f"의뢰 내용: {text}\n\n"
@@ -2538,7 +2563,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         company = get_company(cid)
         if not company: self._json({"error": "not found"}, 404); return
         agents = company.get('agents', [])
-        ceo = next((a for a in agents if a['id'] == 'ceo'), agents[0] if agents else None)
+        ceo = get_leader(company) or (agents[0] if agents else None)
         if not ceo: self._json({"error": "no agents"}, 400); return
         task = add_recurring_task(
             cid,
@@ -2932,7 +2957,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         title = body.get('title', '').strip()
         prompt = body.get('prompt', '').strip()
         interval = body.get('interval_minutes', 60)
-        agent_id = body.get('agent_id', 'ceo')
+        agent_id = body.get('agent_id', get_leader_id(company) if company else 'ceo')
         agent = next((a for a in company.get('agents', []) if a['id'] == agent_id), None)
         if not agent: agent = company['agents'][0] if company.get('agents') else None
         if not agent: self._json({"error": "no agents"}, 400); return
@@ -4286,7 +4311,7 @@ def _cron_scheduler():
                     if _cron_matches_now(cron_expr):
                         print(f"[cron] {cid}/{task.get('title','')} triggered by {cron_expr}")
                         prompt = task.get('prompt', task.get('title', ''))
-                        agent_id = task.get('agent_id', 'ceo')
+                        agent_id = task.get('agent_id', get_leader_id(company) if company else 'ceo')
                         threading.Thread(target=nudge_agent, args=(cid, prompt, agent_id.upper()), daemon=True).start()
         except Exception as e:
             print(f"[cron] scheduler error: {e}")

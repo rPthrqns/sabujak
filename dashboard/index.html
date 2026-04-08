@@ -1317,7 +1317,7 @@ function renderPanels(){
   }
   chatEl.innerHTML='';
   if(activeAgentFilter){
-    const isCEO=activeAgentFilter.id==='ceo';
+    const isCEO=activeAgentFilter.id===(companies.find(x=>x.id===currentCompany)?.agents?.[0]?.id);
     const filtered=(company.chat||[]).filter(m=>{
       if(!m.from)return false;
       if(m.type==='system')return true;
@@ -2294,7 +2294,7 @@ async function sendCrossNudge(){
   if(!text){toast('의뢰 내용을 입력하세요');return;}
   closeCrossNudgeModal();
   try{
-    const fromAgent=(companies.find(c=>c.id===currentCompany)?.agents||[])[0]?.id||'ceo';
+    const fromAgent=(companies.find(c=>c.id===currentCompany)?.agents||[])[0]?.id||'';
     const res=await fetch('/api/cross-nudge',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({from_cid:currentCompany,to_cid:toCid,from_agent:fromAgent,to_agent:toAgent,text})});
     const data=await res.json();
@@ -2882,9 +2882,9 @@ function renderInlineOrgChart(){
   const isCommActive=(a,b)=>activeComms.has(`${a}:${b}`)||activeComms.has(`${b}:${a}`);
 
   // Build tree: agents with parent_agent go under their parent
-  const ceo=agents.find(a=>a.id==='ceo');
+  const ceo=agents[0];
   const getChildren=(parentId)=>agents.filter(a=>a.parent_agent===parentId&&a.id!==parentId);
-  const topLevel=agents.filter(a=>a.id!=='ceo'&&!a.parent_agent);
+  const topLevel=agents.filter(a=>a.id!==(agents[0]?.id)&&!a.parent_agent);
 
   const _card=(a,size)=>{
     const isWorking=a.status==='working'||agentThinking[`${currentCompany}:${a.id}`];
@@ -2951,14 +2951,14 @@ function renderInlineOrgChart(){
       <div style="font-size:7px;color:#818cf8;margin-top:2px">MASTER</div>
     </div>
   </div>`;
-  const ceoConn=ceo?vConn('__master__','ceo'):'';
+  const ceoConn=ceo?vConn('__master__',ceo?.id||''):'';
   const ceoCard=ceo?`<div style="display:flex;justify-content:center;margin-bottom:4px">${_card(ceo,'lg')}</div>`:'';
-  const ceoSubs=ceo?renderSubTree('ceo'):'';
+  const ceoSubs=ceo?renderSubTree(ceo?.id||''):'';
   // Top-level agents (no parent_agent, not CEO) go directly under CEO
   const topRow=topLevel.length?`<div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:4px">${topLevel.map(a=>{
     const subs=getChildren(a.id);
     return `<div style="display:flex;flex-direction:column;align-items:center">
-      ${vConn('ceo',a.id)}
+      ${vConn(ceo?.id||'',a.id)}
       ${_card(a,'sm')}
       ${subs.length?renderSubTree(a.id):''}
     </div>`;
@@ -3022,8 +3022,8 @@ function renderOrgChart(){
   let htmlEl=svgEl.parentElement.querySelector('.org-full-tree');
   if(!htmlEl){htmlEl=document.createElement('div');htmlEl.className='org-full-tree';htmlEl.style.cssText='flex:1;overflow:auto;padding:40px 20px;display:flex;flex-direction:column;align-items:center';svgEl.parentElement.appendChild(htmlEl);}
   const agents=c.agents||[];
-  const ceo=agents.find(a=>a.id==='ceo');
-  const others=agents.filter(a=>a.id!=='ceo');
+  const ceo=agents[0];
+  const others=agents.filter(a=>a.id!==(agents[0]?.id));
   const _fc=(a)=>{
     const sc=a.status==='working'?'#fbbf24':a.status==='active'?'#22c55e':'#64748b';
     const sl=a.status==='working'?'작업중':a.status==='active'?'활성':'대기';
