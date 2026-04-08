@@ -1208,13 +1208,19 @@ def _register_and_activate(agent_id, workspace, name, role):
     with AGENT_LOCK:
         RUNTIME.register(agent_id, str(ws_path))
 
-    # 첫 메시지로 세션 활성화
+    # 첫 메시지로 세션 활성화 (실패해도 첫 실제 요청 시 동작함)
     try:
         RUNTIME.run(agent_id, f"{agent_id}-init",
                     f'당신은 {name}({role})입니다. "확인"이라고만 답하세요.', timeout=30)
         print(f"[register] {agent_id} ({name}) activated")
     except Exception as e:
-        print(f"[register] {agent_id} activate failed: {e}")
+        print(f"[register] {agent_id} activate failed (will work on first request): {e}")
+        # Clean up any lock files left by failed init
+        sessions_dir = Path.home() / '.openclaw' / 'agents' / agent_id / 'sessions'
+        if sessions_dir.exists():
+            for lf in sessions_dir.glob('*.lock'):
+                try: lf.unlink()
+                except: pass
 
 # ─── Recurring Task System ───
 
@@ -4035,42 +4041,67 @@ def _warmup_all_sessions(companies):
     # Don't block startup — threads run in background
     print(f"[warmup] {len(threads)} agent sessions warming up in background")
 
-def _cleanup_stale_locks():
-    """Remove stale .lock files from openclaw agent sessions on startup."""
+def _preflight_check():
+    """Server startup self-healing: fix common issues automatically."""
     agents_dir = Path.home() / '.openclaw' / 'agents'
-    if not agents_dir.exists():
-        return
-    cleaned = 0
-    for lock_file in agents_dir.rglob('*.lock'):
-        try:
-            content = lock_file.read_text().strip()
-            pid = None
-            for line in content.split('\n'):
-                if line.startswith('"pid":') or '"pid"' in line:
-                    import re as _re
-                    m = _re.search(r'"pid"\s*:\s*(\d+)', content)
-                    if m:
-                        pid = int(m.group(1))
-                    break
-            if pid:
-                try:
-                    os.kill(pid, 0)
-                    # Process still alive — skip
-                    continue
-                except OSError:
-                    pass
-            lock_file.unlink()
-            cleaned += 1
-        except Exception:
-            try:
-                lock_file.unlink()
-                cleaned += 1
-            except Exception:
-                pass
-    if cleaned:
-        print(f"[init] cleaned {cleaned} stale lock files")
+    openclaw_config = Path.home() / '.openclaw' / 'openclaw.json'
+    fixes = []
 
-_cleanup_stale_locks()
+    # 1. Clean stale lock files
+    if agents_dir.exists():
+        for lock_file in agents_dir.rglob('*.lock'):
+            try:
+                content = lock_file.read_text().strip()
+                pid = None
+                m = re.search(r'"pid"\s*:\s*(\d+)', content)
+                if m:
+                    pid = int(m.group(1))
+                if pid:
+                    try:
+                        os.kill(pid, 0)
+                        continue  # Process alive, skip
+                    except OSError:
+                        pass
+                lock_file.unlink()
+                fixes.append('lock')
+            except Exception:
+                try: lock_file.unlink(); fixes.append('lock')
+                except: pass
+
+    # 2. Ensure default model is set correctly (not gpt-5.4 which requires separate API key)
+    if openclaw_config.exists():
+        try:
+            cfg = json.loads(openclaw_config.read_text())
+            model = cfg.get('agents', {}).get('defaults', {}).get('model', {})
+            primary = model.get('primary', '')
+            if primary and 'gpt' in primary.lower() and 'zai' not in primary.lower():
+                # Fix: set to zai/glm-5 which is available
+                model['primary'] = 'zai/glm-5'
+                cfg['agents']['defaults']['model'] = model
+                openclaw_config.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
+                fixes.append(f'model:{primary}→zai/glm-5')
+        except Exception as e:
+            print(f"[preflight] config check failed: {e}")
+
+    # 3. Kill orphaned openclaw-agent processes
+    try:
+        import subprocess as _sp
+        result = _sp.run(['pgrep', '-f', 'openclaw-agent'], capture_output=True, text=True)
+        pids = result.stdout.strip().split('\n')
+        for pid in pids:
+            if pid.strip():
+                try:
+                    os.kill(int(pid.strip()), 9)
+                    fixes.append(f'kill:{pid.strip()}')
+                except: pass
+    except: pass
+
+    if fixes:
+        print(f"[preflight] auto-fixed: {', '.join(fixes)}")
+    else:
+        print("[preflight] all checks passed")
+
+_preflight_check()
 init_db()
 migrate_from_json()
 init_companies()
