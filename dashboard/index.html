@@ -157,42 +157,312 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .right-panel-content .tab-pane{display:none;flex:1;overflow-y:auto;overflow-x:hidden;flex-direction:column}
 .right-panel-content .tab-pane.active{display:flex}
 /* Center panel tabs */
-    <!-- Timeline Swimlane View -->
-    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
-      <!-- Toolbar -->
-      <div style="display:flex;align-items:center;padding:4px 8px;border-bottom:1px solid #1e293b;flex-shrink:0;gap:4px">
-        <button onclick="openAgentModal()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer">＋ 에이전트</button>
-        <a href="#" onclick="event.preventDefault();downloadDeliverables()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer;text-decoration:none">📦 다운로드</a>
-        <span id="live-feed-count" style="font-size:8px;color:var(--dim);margin-left:auto"></span>
+.center-tabs{display:flex;gap:2px;padding:6px 10px;border-bottom:1px solid #1e293b;flex-shrink:0;overflow-x:auto}
+.center-tab{background:transparent;border:none;padding:5px 10px;border-radius:6px;font-size:10px;color:var(--dim);cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0}
+.center-tab:hover{color:var(--text);background:#1e293b}
+.center-tab.active{background:var(--accent);color:white}
+.center-panel-content{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.center-panel-content .tab-pane{display:none;flex:1;overflow-y:auto;overflow-x:hidden;flex-direction:column}
+.center-panel-content .tab-pane.active{display:flex}
+.center-panel-content .tab-pane[style*="flex-direction:row"]{flex-direction:column}
+.center-panel-content .tab-pane.active[style*="flex-direction:row"]{flex-direction:row}
+/* Chat init overlay */
+#chat-init-overlay{position:absolute;inset:0;background:rgba(10,10,26,0.9);flex-direction:column;align-items:center;justify-content:center;z-index:10;border-radius:12px;gap:12px;text-align:center}
+.init-progress-bar{width:200px;height:5px;background:#1e293b;border-radius:3px;overflow:hidden}
+.init-progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:3px;transition:width .5s}
+/* Plan Task Tree — Claude Code style */
+.plan-tree{font-family:'SF Mono',Monaco,'Cascadia Code',monospace;font-size:12px;line-height:1.6}
+.plan-node{position:relative;padding-left:20px}
+.plan-node::before{content:'';position:absolute;left:7px;top:0;bottom:0;width:1px;background:#1e3a5f}
+.plan-node:last-child::before{height:12px}
+.plan-node::after{content:'';position:absolute;left:7px;top:12px;width:10px;height:1px;background:#1e3a5f}
+.plan-root>.plan-node::before,.plan-root>.plan-node::after{display:none}
+.plan-root>.plan-node{padding-left:0}
+.plan-row{display:flex;align-items:center;gap:6px;padding:2px 4px;border-radius:4px;cursor:pointer;transition:background .1s}
+.plan-row:hover{background:rgba(59,130,246,.08)}
+.plan-chk{width:16px;height:16px;border:2px solid #334155;border-radius:4px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;flex-shrink:0;font-size:10px}
+.plan-chk.done{background:#064e3b;border-color:#22c55e;color:#4ade80}
+.plan-chk.progress{background:#1c1917;border-color:#fbbf24;color:#fbbf24}
+.plan-chk:hover{border-color:var(--accent);transform:scale(1.1)}
+.plan-label{flex:1;color:#e2e8f0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan-label.done{color:#64748b;text-decoration:line-through}
+.plan-label.progress{color:#fbbf24}
+.plan-agent{font-size:9px;color:#475569;background:#0f172a;padding:1px 5px;border-radius:3px;flex-shrink:0}
+.plan-acts{display:none;gap:2px;flex-shrink:0}
+.plan-row:hover .plan-acts{display:flex}
+.plan-acts button{background:none;border:none;color:#475569;cursor:pointer;font-size:10px;padding:1px 3px;border-radius:2px}
+.plan-acts button:hover{color:var(--text);background:#1e293b}
+.plan-pbar{height:3px;background:#0f172a;border-radius:2px;margin:2px 0 4px 22px;overflow:hidden}
+.plan-pfill{height:100%;background:linear-gradient(90deg,#3b82f6,#22c55e);border-radius:2px;transition:width .4s}
+.plan-add-inline{display:flex;gap:5px;align-items:center;padding:2px 4px;margin:2px 0 2px 22px}
+.plan-add-inline input{flex:1;background:#0f172a;border:1px solid #1e3a5f;border-radius:4px;padding:3px 8px;color:var(--text);font-size:11px;outline:none;font-family:inherit}
+.plan-add-inline input:focus{border-color:var(--accent)}
+
+.log-item{display:flex;gap:6px;padding:5px 0;border-bottom:1px solid #1a1a2e;font-size:10px;animation:fadeIn .2s}
+.log-avatar{width:22px;height:22px;border-radius:50%;background:var(--card);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+.log-agent{font-size:10px;font-weight:600;color:#60a5fa}
+.log-text{font-size:10px;color:#cbd5e1;line-height:1.3}
+.log-time{font-size:8px;color:#4b5563}
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:24px;width:420px;max-width:90vw}
+.modal h2{font-size:18px;margin-bottom:16px;color:#00d4ff}
+.modal label{font-size:12px;color:var(--dim);display:block;margin-bottom:4px;margin-top:12px}
+.modal input,.modal select{width:100%;background:var(--card);border:1px solid #374151;border-radius:8px;padding:9px 12px;color:var(--text);font-size:13px;outline:none}
+.modal input:focus,.modal select:focus{border-color:var(--accent)}
+.modal-actions{display:flex;gap:8px;margin-top:20px;justify-content:flex-end}
+.modal-cancel{background:var(--card);border:1px solid #374151;color:var(--dim);padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px}
+.modal-submit{background:linear-gradient(135deg,var(--accent),var(--accent2));color:white;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px;position:relative;transition:opacity .2s}
+.modal-submit.loading{pointer-events:none;opacity:.7}
+.modal-submit.loading::after{content:'';position:absolute;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:btn-spin .6s linear infinite;top:50%;left:50%;margin:-7px 0 0 -7px}
+.modal-submit.loading span{opacity:0}
+@keyframes btn-spin{to{transform:rotate(360deg)}}
+.toast-stack{position:fixed;bottom:24px;right:24px;z-index:200;display:flex;flex-direction:column-reverse;gap:8px;pointer-events:none}
+.toast{background:#1e293b;color:#e2e8f0;padding:12px 20px;border-radius:10px;font-size:13px;animation:toast-in .3s ease;box-shadow:0 4px 20px rgba(0,0,0,.4);border:1px solid #334155;max-width:320px;pointer-events:auto}
+.toast.fade-out{animation:toast-out .3s ease forwards}
+@keyframes toast-in{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes toast-out{to{opacity:0;transform:translateY(20px)}}
+.loading-toast::before{content:'';display:inline-block;width:12px;height:12px;border:2px solid #475569;border-top-color:#00d4ff;border-radius:50%;animation:btn-spin .6s linear infinite;margin-right:8px;vertical-align:middle}
+.topic-suggestions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.topic-chip{background:var(--card);border:1px solid #374151;border-radius:6px;padding:4px 10px;font-size:11px;color:var(--dim);cursor:pointer}
+.topic-chip:hover,.topic-chip.selected{border-color:var(--accent);color:var(--text)}
+.add-agent-btn{background:var(--card);border:1px solid #374151;color:var(--accent);width:24px;height:24px;border-radius:6px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.add-agent-btn:hover{background:var(--accent);color:white}
+.tab-close{margin-left:6px;font-size:10px;color:#ef4444;cursor:pointer;opacity:0.5;transition:opacity .15s}
+.company-tab:hover .tab-close{opacity:1}
+.tab-close:hover{color:#ff0000}
+.emoji-opt{font-size:20px;cursor:pointer;padding:4px;border-radius:6px;transition:all .1s}
+.preset-btn{background:#1e293b;border:1px solid #334155;border-radius:6px;padding:3px 8px;font-size:10px;color:#94a3b8;cursor:pointer;transition:all .15s;white-space:nowrap}
+.preset-btn:hover{background:#253047;border-color:var(--accent);color:#e2e8f0}
+.sub-tab{background:transparent;border:none;padding:3px 6px;border-radius:4px;font-size:9px;color:var(--dim);cursor:pointer;transition:all .15s}
+.sub-tab:hover{color:var(--text)}
+.feed-item{display:flex;gap:6px;padding:4px 0;border-bottom:1px solid rgba(30,41,59,.5);animation:fadeIn .3s;align-items:flex-start}
+.feed-item .feed-time{font-size:8px;color:#475569;min-width:32px;flex-shrink:0;margin-top:2px}
+.feed-item .feed-emoji{font-size:12px;flex-shrink:0}
+.feed-item .feed-body{flex:1;min-width:0;line-height:1.4}
+.feed-item .feed-action{color:#60a5fa;font-weight:600}
+.feed-item .feed-target{color:#a78bfa}
+.feed-item .feed-text{color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.feed-item.approval{background:rgba(251,191,36,.05);border-left:2px solid #fbbf24;padding-left:6px;border-radius:4px;margin:2px 0}
+.feed-item.approval .feed-btns{display:flex;gap:3px;margin-top:3px}
+.feed-item.approval .feed-btns button{border:none;border-radius:3px;padding:2px 8px;font-size:9px;cursor:pointer}
+.sub-tab.active{background:var(--accent);color:white}
+.emoji-opt:hover,.emoji-opt.selected{background:#253047;transform:scale(1.2)}
+.empty-state{text-align:center;padding:40px;color:var(--dim)}
+.empty-state .emoji{font-size:48px;margin-bottom:12px}
+.empty-state p{font-size:14px;margin-bottom:4px}
+.empty-state .hint{font-size:12px}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse-border{0%,100%{border-left-color:var(--accent)}50%{border-left-color:var(--accent2)}}
+@keyframes comm-glow{0%,100%{box-shadow:0 0 4px #60a5fa;opacity:.7}50%{box-shadow:0 0 14px #60a5fa,0 0 28px #3b82f6;opacity:1}}
+@keyframes spark-move{0%{top:0;opacity:0}20%{opacity:1}80%{opacity:1}100%{top:100%;opacity:0}}
+@keyframes line-shimmer{0%{background-position:0 0}100%{background-position:0 40px}}
+.comm-line-active{background:linear-gradient(to bottom,#60a5fa 0%,transparent 50%,#60a5fa 100%)!important;background-size:3px 40px;animation:line-shimmer .8s linear infinite,comm-glow 1.5s ease-in-out infinite;width:3px!important}
+.comm-line-h-active{background:linear-gradient(to right,#60a5fa,#3b82f6)!important;animation:comm-glow 1.5s ease-in-out infinite;height:3px!important}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#374151;border-radius:2px}
+.chat-msg.mention-msg{margin:2px 12px;padding:4px 8px;background:var(--accent-bg,rgba(99,102,241,0.06));border-left:2px solid var(--accent);border-radius:0 6px 6px 0;display:flex;align-items:center;gap:6px;font-size:11px;flex-wrap:wrap}
+.mention-from{font-size:10px;font-weight:700;color:#a78bfa;white-space:nowrap}
+.mention-arrow{font-size:11px;color:var(--accent);font-weight:700}
+.mention-target{font-size:10px;font-weight:700;color:#60a5fa;white-space:nowrap}
+.mention-sep{color:var(--dim);margin:0 2px}
+.mention-body{flex:1;line-height:1.3;font-size:11px;min-width:0}
+.agent-node{cursor:pointer;transition:opacity .2s}.agent-node:hover{opacity:.8}.agent-edge{stroke:var(--accent);stroke-width:1.5;fill:none;opacity:.3;transition:opacity .3s}.agent-edge.active{opacity:1;stroke-width:2;animation:edgePulse 1s ease-in-out infinite}@keyframes edgePulse{0%,100%{opacity:.4}50%{opacity:1}}.node-pulse{animation:pulse 2s ease-in-out infinite}@keyframes pulse{0%,100%{r:14}50%{r:17}}
+.swim-lane{display:flex;align-items:stretch;border-bottom:1px solid #1e293b;min-height:42px}
+.swim-label{width:68px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4px;border-right:1px solid #1e293b;background:#0f172a;cursor:pointer;transition:background .1s}
+.swim-label:hover{background:#1a2332}
+.swim-track{flex:1;display:flex;align-items:center;gap:3px;padding:3px 6px;overflow-x:auto}
+.swim-ev{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:5px;font-size:9px;white-space:nowrap;flex-shrink:0;animation:fadeIn .3s}
+.swim-ev.working{background:linear-gradient(135deg,#1c1917,#292524);border:1px solid #92400e;color:#fbbf24}
+.swim-ev.done{background:linear-gradient(135deg,#052e16,#064e3b);border:1px solid #065f46;color:#6ee7b7}
+.swim-ev.mention{background:linear-gradient(135deg,#1e1b4b,#312e81);border:1px solid #4338ca;color:#a78bfa}
+.swim-ev.pending{background:linear-gradient(135deg,#1a1500,#2a2000);border:1px solid #92400e;color:#fbbf24}
+.swim-ev.thinking{background:#1c1917;border:1px dashed #92400e;color:#fbbf24;animation:pulse-border 1.5s infinite}
+.swim-ev .s-btns{display:inline-flex;gap:2px;margin-left:3px}
+.swim-ev .s-btns button{background:rgba(255,255,255,.1);border:none;border-radius:3px;color:inherit;font-size:8px;padding:1px 5px;cursor:pointer}
+</style>
+</head>
+<body>
+
+<!-- Language Setup Overlay (shown only on first visit) -->
+<div id="lang-setup-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:999;align-items:center;justify-content:center">
+  <div style="background:linear-gradient(145deg,#0f172a,#1e293b);border:1px solid #334155;border-radius:16px;padding:32px;max-width:400px;width:90%;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)">
+    <div style="font-size:40px;margin-bottom:12px">🌍</div>
+    <div style="font-size:18px;font-weight:700;color:#f1f5f9;margin-bottom:4px">Welcome to AI Company Hub</div>
+    <div style="font-size:12px;color:#94a3b8;margin-bottom:20px">Type your language to set up the interface</div>
+    <input id="lang-setup-input" placeholder="e.g. Korean, English, 日本語, Español..." style="width:100%;background:#0f172a;border:2px solid #334155;border-radius:10px;padding:12px 16px;color:#f1f5f9;font-size:14px;text-align:center;outline:none;box-sizing:border-box;transition:border .2s" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#334155'" onkeydown="if(event.key==='Enter')generateLanguage()">
+    <div id="lang-setup-status" style="font-size:11px;color:#64748b;margin-top:10px;min-height:20px"></div>
+    <div style="display:flex;gap:8px;margin-top:16px;justify-content:center">
+      <button onclick="generateLanguage()" id="lang-setup-btn" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:white;border:none;border-radius:8px;padding:10px 24px;font-size:13px;font-weight:600;cursor:pointer;transition:transform .15s" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform=''">🚀 Set Up</button>
+      <button onclick="skipLanguageSetup()" style="background:transparent;color:#64748b;border:1px solid #334155;border-radius:8px;padding:10px 16px;font-size:12px;cursor:pointer">Skip (English)</button>
+    </div>
+  </div>
+</div>
+
+<div class="top-wrap" id="top-wrap">
+  <div class="header">
+    <h1>🏢 <span>AI Company Hub</span></h1>
+    <div class="hdr-right">
+      <div id="hdr-stats" style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--dim)">
+        <span id="hdr-task-stat"></span>
+        <span id="hdr-cost-stat"></span>
       </div>
-      <!-- Swimlane container -->
-      <div id="swimlane-view" style="flex:1;overflow-y:auto;overflow-x:auto;padding:8px"></div>
-      <!-- Hidden compat elements -->
-      <svg id="agent-graph" style="display:none"></svg>
-      <svg id="org-inline-svg" style="display:none"></svg>
-      <div id="live-feed" style="display:none"></div>
-      <div id="org-inline-panel" style="position:absolute;inset:0;background:#0f172a;padding:12px;overflow-y:auto;display:none;z-index:5">
-        <div id="org-inline-panel-content"></div>
+      <button onclick="resetLanguage()" style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:3px 8px;color:#94a3b8;font-size:10px;cursor:pointer" title="언어 재설정">🌍</button>
+      <div style="display:flex;align-items:center;gap:4px;background:#0f3460;padding:3px 8px;border-radius:12px;font-size:10px">
+        <span style="width:5px;height:5px;border-radius:50%;background:var(--green)"></span><span data-i18n="operating"></span>
       </div>
-      <div style="display:none">
-        <div id="plan-task-tree"></div>
-        <div id="deliverables-panel"></div>
-        <div id="kanban-board"></div>
-        <div id="goals-tab-panel"></div>
-        <div id="sprint-panel"></div>
-        <div id="approvals-panel"></div>
-        <div id="risk-panel"></div>
-        <div id="announce-panel"></div>
-        <div id="audit-panel"></div>
-        <div id="milestone-panel"></div>
-        <div id="policy-panel"></div>
-        <div id="budget-panel"></div>
-        <div id="vote-panel"></div>
-        <div id="kpi-panel"></div>
-        <div id="report-panel"></div>
-        <div id="wiki-panel"></div>
-        <div id="crm-panel"></div>
-        <div id="task-list"></div>
+    </div>
+  </div>
+  <div class="toolbar">
+    <div class="company-tabs" id="company-tabs"></div>
+    <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+      <div style="position:relative">
+        <input id="global-search" placeholder="🔍 검색" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:4px 8px;color:var(--text);font-size:10px;width:110px;outline:none;transition:width .2s" oninput="_debounceSearch(this.value)" onkeydown="if(event.key==='Escape')_closeSearch()" onfocus="this.style.width='180px'" onblur="if(!this.value)this.style.width='110px'">
+        <div id="search-results" style="display:none;position:absolute;top:calc(100%+4px);right:0;width:360px;background:#111827;border:1px solid #334155;border-radius:8px;z-index:150;max-height:400px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.5)"></div>
+      </div>
+      <button class="create-btn" data-i18n="createBtn" onclick="openModal()" style="padding:4px 10px;font-size:11px">＋ 새 회사</button>
+    </div>
+  </div>
+  <div class="top-toggle" onclick="toggleTopBar()" id="top-toggle" title="헤더 접기/펼치기">▲</div>
+</div>
+
+<!-- Approval Banner (shown when pending approvals exist) -->
+<div class="approval-banner" id="approval-banner" style="display:none"></div>
+
+<!-- Goals Bar (shown when company is selected) -->
+<div class="goals-bar" id="goals-bar"></div>
+
+<div id="empty-state" class="empty-state" style="display:none">
+  <div class="emoji">🏢</div>
+  <p data-i18n="emptyTitle"></p>
+  <p class="hint" data-i18n="emptyHint"></p>
+  <button class="create-btn" style="margin-top:20px;font-size:14px;padding:10px 28px" data-i18n="emptyBtn" onclick="openModal()">＋ 새 회사 만들기</button>
+</div>
+
+<!-- Hidden elements for backward compat -->
+<div id="org-list" style="display:none"></div>
+
+<div class="main" id="main-content" style="display:none">
+  <!-- Main: Tabbed panel (조직도 + 대기열·결재·연혁·정기·결과물·리포트) -->
+  <div class="panel" style="padding:0;overflow:hidden">
+    <div class="center-tabs">
+      <button class="center-tab active" onclick="switchCenterTab('orgchart')" title="에이전트 조직도, 상태, 관리">🏢 조직</button>
+      <button class="center-tab" onclick="switchCenterTab('work')" title="칸반 대기열 + 목표 + 스프린트">📋 작업</button>
+      <button class="center-tab" onclick="switchCenterTab('manage')" title="결재 + 리스크 + 마일스톤 + 계획">🔔 관리</button>
+      <button class="center-tab" onclick="switchCenterTab('analytics')" title="KPI 대시보드 + 리포트 + 성과평가">📈 분석</button>
+      <button class="center-tab" onclick="switchCenterTab('docs')" title="지식 베이스 위키 + 결과물 + 정기작업">📖 자료</button>
+    </div>
+    <div class="center-panel-content">
+      <!-- ① 타임라인 수영장 -->
+      <div class="tab-pane active" id="tab-orgchart" style="position:relative;flex-direction:column">
+        <svg id="agent-graph" style="display:none"></svg>
+        <svg id="org-inline-svg" style="display:none"></svg>
+        <div id="live-feed" style="display:none"></div>
+        <span id="live-feed-count" style="display:none"></span>
+        <div style="display:flex;align-items:center;padding:4px 8px;border-bottom:1px solid #1e293b;flex-shrink:0;gap:4px">
+          <button onclick="openAgentModal()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer">＋ 에이전트</button>
+          <a href="#" onclick="event.preventDefault();downloadDeliverables()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer;text-decoration:none">📦 다운로드</a>
+        </div>
+        <div id="swimlane-view" style="flex:1;overflow:auto;padding:0"></div>
+        <div id="org-inline-panel" style="position:absolute;inset:0;background:#0f172a;padding:12px;overflow-y:auto;display:none;z-index:5">
+          <div id="org-inline-panel-content"></div>
+        </div>
+      </div>
+      <!-- ② 작업 탭: 칸반(좌) + 목표·스프린트(우) -->
+      <div class="tab-pane" id="tab-work" style="flex-direction:row">
+        <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid #1e293b;overflow:hidden">
+          <div style="padding:6px 10px;border-bottom:1px solid #1e293b;font-size:10px;font-weight:600;color:var(--dim)">📋 칸반 대기열</div>
+          <div class="kanban-wrapper" style="flex:1;overflow-y:auto"><div class="kanban-board" id="kanban-board"></div></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+          <div style="padding:6px 10px;border-bottom:1px solid #1e293b;display:flex;align-items:center;gap:4px">
+            <span style="font-size:10px;font-weight:600;color:var(--dim)">🎯 목표 · 🏃 스프린트</span>
+            <button onclick="createSprint()" style="margin-left:auto;background:var(--accent);color:white;border:none;border-radius:4px;font-size:9px;padding:2px 6px;cursor:pointer">＋ 스프린트</button>
+            <button onclick="runStandup()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:4px;font-size:9px;padding:2px 6px;cursor:pointer">📋 스탠드업</button>
+          </div>
+          <div style="flex:1;overflow-y:auto;padding:8px">
+            <div id="goals-tab-panel"></div>
+            <div style="margin-top:8px;border-top:1px solid #1e293b;padding-top:8px" id="sprint-panel"></div>
+          </div>
+        </div>
+      </div>
+      <!-- ③ 관리 탭: 결재·리스크(좌) + 마일스톤·계획(우) -->
+      <div class="tab-pane" id="tab-manage" style="flex-direction:row">
+        <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid #1e293b;overflow:hidden">
+          <div style="padding:4px 8px;border-bottom:1px solid #1e293b;display:flex;gap:2px;flex-wrap:wrap">
+            <button class="sub-tab active" onclick="_switchManageSub(this,'m-approvals')">📋 기안</button>
+            <button class="sub-tab" onclick="_switchManageSub(this,'m-risk')">⚠️ 리스크</button>
+            <button class="sub-tab" onclick="_switchManageSub(this,'m-announce')">📢 공지</button>
+            <button class="sub-tab" onclick="_switchManageSub(this,'m-audit')">🔍 감사</button>
+            <button onclick="addRisk()" style="margin-left:auto;background:var(--accent);color:white;border:none;border-radius:3px;font-size:8px;padding:2px 5px;cursor:pointer">＋</button>
+          </div>
+          <div style="flex:1;overflow-y:auto;padding:8px">
+            <div id="m-approvals"><div id="approvals-panel"></div></div>
+            <div id="m-risk" style="display:none"><div id="risk-panel"></div></div>
+            <div id="m-announce" style="display:none"><div id="announce-panel"></div></div>
+            <div id="m-audit" style="display:none"><div id="audit-panel"></div></div>
+          </div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+          <div style="padding:4px 8px;border-bottom:1px solid #1e293b;display:flex;gap:2px;flex-wrap:wrap">
+            <button class="sub-tab active" onclick="_switchManageRight(this,'m-milestone')">🚩 마일스톤</button>
+            <button class="sub-tab" onclick="_switchManageRight(this,'m-plan')">📋 계획</button>
+            <button class="sub-tab" onclick="_switchManageRight(this,'m-policy')">📜 사규</button>
+            <button class="sub-tab" onclick="_switchManageRight(this,'m-budget')">💵 예산</button>
+            <button class="sub-tab" onclick="_switchManageRight(this,'m-vote')">🗳️ 투표</button>
+            <button onclick="addMilestone()" style="margin-left:auto;background:var(--accent);color:white;border:none;border-radius:3px;font-size:8px;padding:2px 5px;cursor:pointer">＋</button>
+          </div>
+          <div style="flex:1;overflow-y:auto;padding:8px">
+            <div id="m-milestone"><div id="milestone-panel"></div></div>
+            <div id="m-plan" style="display:none"><div id="plan-task-tree"></div></div>
+            <div id="m-policy" style="display:none"><div id="policy-panel"></div></div>
+            <div id="m-budget" style="display:none"><div id="budget-panel"></div></div>
+            <div id="m-vote" style="display:none"><div id="vote-panel"></div></div>
+          </div>
+        </div>
+      </div>
+      <!-- ④ 분석 탭: KPI(좌) + 리포트(우) -->
+      <div class="tab-pane" id="tab-analytics" style="flex-direction:row">
+        <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid #1e293b;overflow:hidden">
+          <div style="padding:6px 10px;border-bottom:1px solid #1e293b;display:flex;align-items:center;gap:4px">
+            <span style="font-size:10px;font-weight:600;color:var(--dim)">📈 KPI 대시보드</span>
+            <button onclick="runPerformanceReview()" style="margin-left:auto;background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:4px;font-size:9px;padding:2px 6px;cursor:pointer">🏆 성과평가</button>
+            <button onclick="refreshKPI()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:4px;font-size:9px;padding:2px 6px;cursor:pointer">🔄</button>
+          </div>
+          <div id="kpi-panel" style="flex:1;overflow-y:auto;padding:8px"></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+          <div style="padding:4px 8px;border-bottom:1px solid #1e293b;display:flex;gap:2px">
+            <button class="sub-tab active" onclick="_switchAnalRight(this,'a-report')">📊 리포트</button>
+            <button class="sub-tab" onclick="_switchAnalRight(this,'a-crm')">👥 CRM</button>
+            <button onclick="startDailyReport()" style="margin-left:auto;background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;font-size:8px;padding:2px 5px;cursor:pointer">📊 데일리</button>
+            <button onclick="refreshReport()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;font-size:8px;padding:2px 5px;cursor:pointer">🔄</button>
+            <button onclick="generateReport('weekly')" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;font-size:8px;padding:2px 5px;cursor:pointer">📝 주간</button>
+          </div>
+          <div style="flex:1;overflow-y:auto;padding:8px">
+            <div id="a-report"><div id="report-panel" style="font-size:11px;color:var(--text);white-space:pre-wrap;line-height:1.6"><div style="color:var(--dim);text-align:center;padding:20px">리포트 클릭 시 로드</div></div></div>
+            <div id="a-crm" style="display:none"><div id="crm-panel"></div></div>
+          </div>
+        </div>
+      </div>
+      <!-- ⑤ 자료 탭: 위키(좌) + 결과물·정기(우) -->
+      <div class="tab-pane" id="tab-docs" style="flex-direction:row">
+        <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid #1e293b;overflow:hidden">
+          <div style="padding:6px 10px;border-bottom:1px solid #1e293b;display:flex;align-items:center;gap:4px">
+            <span style="font-size:10px;font-weight:600;color:var(--dim)">📖 지식 베이스</span>
+            <button onclick="createWikiPage()" style="margin-left:auto;background:var(--accent);color:white;border:none;border-radius:4px;font-size:9px;padding:2px 6px;cursor:pointer">＋ 새 문서</button>
+          </div>
+          <div id="wiki-panel" style="flex:1;overflow-y:auto;padding:8px"></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+          <div style="padding:6px 10px;border-bottom:1px solid #1e293b;display:flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:var(--dim)">📂 결과물 · 🔄 정기작업
+            <a href="#" onclick="event.preventDefault();downloadDeliverables()" style="margin-left:auto;background:#064e3b;color:#6ee7b7;border:none;border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer;text-decoration:none">📦 ZIP</a>
+            <a href="#" onclick="event.preventDefault();downloadAll()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer;text-decoration:none">💾 전체</a>
+          </div>
+          <div style="flex:1;overflow-y:auto;padding:8px">
+            <div id="deliverables-panel"></div>
+            <div style="margin-top:8px;border-top:1px solid #1e293b;padding-top:8px" id="task-list"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -530,6 +800,48 @@ async function _loadI18n(lang){
 // Run on page load
 document.addEventListener('DOMContentLoaded',()=>{_checkLanguageSetup();/* load() is called separately at bottom */});
 
+
+// ─── Swimlane Timeline ───
+const _swimEvents={};
+function addSwimEvent(aid,type,text,extra){
+  if(!_swimEvents[aid])_swimEvents[aid]=[];
+  _swimEvents[aid].push({type,text:text||'',time:new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}),extra:extra||{}});
+  if(_swimEvents[aid].length>15)_swimEvents[aid].shift();
+  renderSwimlane();
+}
+function renderSwimlane(){
+  const el=document.getElementById('swimlane-view');
+  if(!el)return;
+  const c=companies.find(x=>x.id===currentCompany);
+  if(!c||!c.agents){el.innerHTML='<div style="color:var(--dim);text-align:center;padding:40px;font-size:11px">회사를 선택하세요</div>';return;}
+  let html='';
+  c.agents.forEach(a=>{
+    const isT=!!agentThinking[currentCompany+':'+a.id];
+    const sc=isT?'#fbbf24':a.status==='active'?'#22c55e':'#64748b';
+    const evts=_swimEvents[a.id]||[];
+    html+='<div class="swim-lane">';
+    html+=`<div class="swim-label" onclick="_inlineOrgChartNodeClick(${JSON.stringify(a).replace(/"/g,'&quot;')})"><span style="font-size:16px">${a.emoji||'🤖'}</span><span style="color:${sc};font-size:8px;font-weight:600">${_esc(a.name)}</span></div>`;
+    html+='<div class="swim-track">';
+    if(isT)html+='<div class="swim-ev thinking">⚡ 생각 중...</div>';
+    evts.forEach((ev,i)=>{
+      const cls=ev.type==='done'?'done':ev.type==='mention'?'mention':ev.type==='approval'?'pending':'working';
+      const icon=ev.type==='done'?'✅':ev.type==='mention'?'↗':ev.type==='approval'?'📋':'🔄';
+      html+=`<div class="swim-ev ${cls}" title="${ev.time}">${icon} ${_esc(ev.text.substring(0,35))}`;
+      if(ev.type==='approval'&&ev.extra.id)html+=`<span class="s-btns"><button onclick="resolveApproval('${ev.extra.id}','approved')">✅</button><button onclick="resolveApproval('${ev.extra.id}','rejected')">❌</button></span>`;
+      html+='</div>';
+      if(i<evts.length-1)html+='<span style="color:#334155;font-size:8px">→</span>';
+    });
+    if(!evts.length&&!isT)html+='<span style="color:var(--dim);font-size:9px">대기 중</span>';
+    html+='</div></div>';
+  });
+  const pend=(cachedApprovals||[]).filter(a=>a.status==='pending');
+  if(pend.length){
+    html+='<div class="swim-lane"><div class="swim-label" style="background:#1a1500"><span style="font-size:14px">📋</span><span style="color:#fbbf24;font-size:8px">결재</span></div><div class="swim-track">';
+    pend.forEach(a=>html+=`<div class="swim-ev pending">${_esc((a.title||a.detail||'').substring(0,30))}<span class="s-btns"><button onclick="resolveApproval('${a.id}','approved')">✅</button><button onclick="resolveApproval('${a.id}','rejected')">❌</button></span></div>`);
+    html+='</div></div>';
+  }
+  el.innerHTML=html;
+}
 // ─── Top Bar Toggle (click only) ───
 function toggleTopBar(){
   const w=document.getElementById('top-wrap');
@@ -621,9 +933,7 @@ async function refreshCompany(){
   renderLiveFeed();
   if(c.chat)c.chat.forEach(m=>appendChat(m));
   lastChatLen=(c.chat||[]).length;
-  // Reset swimlane
   Object.keys(_swimEvents).forEach(k=>delete _swimEvents[k]);
-  if(c.chat)(c.chat||[]).slice(-15).forEach(m=>_origFeedFromChat(m));
   renderSwimlane();
   fetchExtras();
 }
@@ -675,7 +985,7 @@ function renderCompanyUI(c){
     // Live monitor bar for working agents
     const thinkKey=`${currentCompany}:${a.id}`;
     const thinking=agentThinking[thinkKey];
-    const liveHtml=thinking?`<div class="agent-live-bar">⚡ <span class="live-timer" id="lt-${a.id}">0s</span><span style="color:#94a3b8">생각 중...</span></div>`:'';
+    const liveHtml=thinking?`<div class="agent-live-bar">⚡ <span class="live-timer" id="lt-${a.id}">0s</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;color:#94a3b8">${thinking.promptPreview||''}</span></div><div class="agent-watchdog"><div class="agent-watchdog-fill" id="wd-${a.id}" style="width:0%"></div></div>`:'';
     return `<div class="agent-card ${cls}" style="${dis};cursor:pointer;${border}" onclick="filterAgentChat('${a.id}','${a.name}','${a.emoji}')"><div class="agent-top"><span class="agent-emoji">${a.emoji}</span><span class="agent-name">${a.name}</span><span class="agent-tag ${cls}" style="margin-left:auto">${lbl}</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();reactivateAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="재활성화">🔄</span><span style="font-size:11px;color:var(--dim);cursor:pointer;margin-left:2px" onclick="event.stopPropagation();deleteAgent('${currentCompany}','${a.id}','${a.emoji} ${a.name}')" title="삭제">✕</span></div><div class="agent-role">${a.role}</div><div class="agent-meta"><span>${done}/${total}</span></div>${costHtml}${liveHtml}${total?`<div class="pbar"><div class="pfill" style="width:${prog}%"></div></div>`:''}</div>`;
   }).join('');
   // Recurring tasks (right tab)
@@ -1017,7 +1327,6 @@ function updateMainHeight(){
 function switchCenterTab(tab){
   currentCenterTab=tab;
   currentRightTab=tab;
-  renderSwimlane();
   document.querySelectorAll('.center-tab').forEach(el=>{
     const onclick=el.getAttribute('onclick')||'';
     el.classList.toggle('active',onclick.includes(`'${tab}'`));
@@ -1026,7 +1335,7 @@ function switchCenterTab(tab){
     const el=document.getElementById('tab-'+t);
     if(el)el.classList.toggle('active',t===tab);
   });
-  if(tab==='orgchart')setTimeout(renderInlineOrgChart,50);
+  if(tab==='orgchart'){renderSwimlane();}
   if(tab==='work'){renderKanban();renderGoalsTab();renderSprints();}
   if(tab==='manage'){renderApprovals();renderRisks();renderMilestones();renderPlanTaskTree();}
   if(tab==='analytics'){refreshKPI();refreshReport();}
@@ -1656,7 +1965,7 @@ function renderLiveFeed(){
 
 // Hook into existing events to populate feed
 function _feedFromChat(m){
-  _origFeedFromChat(m);
+  if(m&&m.type!=='system'){const c2=companies.find(x=>x.id===currentCompany);if(c2){const am=c2.agents.find(a=>a.name===m.from);if(am){const mts=(m.text||'').match(/@(\w+)/g);if(mts)addSwimEvent(am.id,'mention','→'+mts.map(t=>t.slice(1)).join(','));else if(m.type==='agent')addSwimEvent(am.id,(m.text||'').includes('완료')?'done':'working',(m.text||'').substring(0,40));}}}
   if(!m||m.type==='system')return;
   const mentions=(m.text||'').match(/@(\w+)/g);
   if(mentions){
@@ -1674,6 +1983,7 @@ function _feedFromApproval(a){
 }
 
 function _feedFromThinking(d){
+  addSwimEvent(d.agent_id,'thinking','생각 중...');
   const agent=d.agent_id?.toUpperCase()||'?';
   addFeedItem('thinking','⚡',agent,'작업 중...',d.prompt_preview||'');
 }
@@ -1684,89 +1994,6 @@ function _feedFromDone(d){
   addFeedItem('done','✅',agent,'작업 완료','');
 }
 
-
-// ─── Swimlane Timeline ───
-const _swimEvents={};  // {agent_id: [{type,text,time,extra}]}
-
-function addSwimEvent(agentId, type, text, extra){
-  if(!_swimEvents[agentId])_swimEvents[agentId]=[];
-  const time=new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  _swimEvents[agentId].push({type,text:text||'',time,extra:extra||{}});
-  if(_swimEvents[agentId].length>20)_swimEvents[agentId].shift();
-  renderSwimlane();
-}
-
-function renderSwimlane(){
-  const el=document.getElementById('swimlane-view');
-  if(!el)return;
-  const c=companies.find(x=>x.id===currentCompany);
-  if(!c||!c.agents){el.innerHTML='<div style="color:var(--dim);text-align:center;padding:40px;font-size:11px">회사를 선택하세요</div>';return;}
-  
-  let html='';
-  c.agents.forEach(a=>{
-    const isThinking=!!agentThinking[currentCompany+':'+a.id];
-    const sc=isThinking?'#fbbf24':a.status==='active'?'#22c55e':'#64748b';
-    const events=_swimEvents[a.id]||[];
-    
-    html+='<div class="swim-lane">';
-    html+=`<div class="swim-label" onclick="_inlineOrgChartNodeClick(${JSON.stringify(a).replace(/"/g,'&quot;')})" title="${_esc(a.role||'')}">
-      <span style="font-size:14px">${a.emoji||'🤖'}</span>
-      <span style="color:${sc};font-weight:600;font-size:9px">${_esc(a.name)}</span>
-    </div>`;
-    html+='<div class="swim-track">';
-    
-    if(isThinking){
-      html+='<div class="swim-event thinking">⚡ 생각 중...</div>';
-    }
-    
-    events.forEach((ev,i)=>{
-      const cls=ev.type==='done'?'done':ev.type==='mention'?'mention':ev.type==='approval'?'pending':ev.type==='thinking'?'thinking':'working';
-      const icon=ev.type==='done'?'✅':ev.type==='mention'?'→':ev.type==='approval'?'📋':ev.type==='thinking'?'⚡':'🔄';
-      html+=`<div class="swim-event ${cls}" title="${ev.time}">`;
-      html+=`${icon} ${_esc(ev.text.substring(0,40))}`;
-      if(ev.type==='approval'&&ev.extra.id){
-        html+=`<span class="swim-btns"><button onclick="resolveApproval('${ev.extra.id}','approved')">✅</button><button onclick="resolveApproval('${ev.extra.id}','rejected')">❌</button></span>`;
-      }
-      html+='</div>';
-      if(i<events.length-1)html+='<span class="swim-arrow">→</span>';
-    });
-    
-    if(!events.length&&!isThinking){
-      html+='<span style="color:var(--dim);font-size:9px;padding:4px">대기 중</span>';
-    }
-    
-    html+='</div></div>';
-  });
-  
-  // Pending approvals row
-  const pending=(cachedApprovals||[]).filter(a=>a.status==='pending');
-  if(pending.length){
-    html+='<div class="swim-lane"><div class="swim-label" style="background:#1a1500"><span style="font-size:12px">📋</span><span style="color:#ffaa00;font-size:9px">결재</span></div><div class="swim-track">';
-    pending.forEach(a=>{
-      html+=`<div class="swim-event pending">${_esc((a.title||a.detail||'').substring(0,30))} <span class="swim-btns"><button onclick="resolveApproval('${a.id}','approved')">✅</button><button onclick="resolveApproval('${a.id}','rejected')">❌</button></span></div>`;
-    });
-    html+='</div></div>';
-  }
-  
-  el.innerHTML=html;
-}
-
-// Hook into existing events
-function _origFeedFromChat(m){
-  if(!m||m.type==='system')return;
-  const c=companies.find(x=>x.id===currentCompany);
-  if(!c)return;
-  const agentMatch=c.agents.find(a=>a.name===m.from);
-  const agentId=agentMatch?agentMatch.id:(m.from==='마스터'||m.from==='Master'?'__master__':'');
-  if(!agentId)return;
-  const mentions=(m.text||'').match(/@(\w+)/g);
-  if(mentions){
-    addSwimEvent(agentId,'mention','→ '+mentions.map(t=>t.slice(1)).join(', '));
-  }else if(m.type==='agent'){
-    const isDone=(m.text||'').includes('완료')||(m.text||'').includes('Results');
-    addSwimEvent(agentId,isDone?'done':'working',(m.text||'').substring(0,50));
-  }
-}
 // ─── Agent Model Change ───
 async function changeAgentModel(agentId){
   if(!currentCompany)return;
@@ -2948,7 +3175,7 @@ function renderInlineOrgChart(){
       <div style="font-size:8px;color:${sc};margin:3px 0;font-weight:600">${sl}</div>
       <div style="font-size:7px;color:#64748b;margin-bottom:2px">${_esc(a.role||'')}</div>
       ${total?`<div style="margin:4px auto 0;width:80%;height:4px;background:#0f172a;border-radius:2px;overflow:hidden"><div style="height:100%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:2px;width:${Math.round(done/total*100)}%;transition:width .5s"></div></div><div style="font-size:7px;color:#64748b;margin-top:2px">${done}/${total}</div>`:''}
-      ${thinking?`<div style="font-size:7px;color:#fbbf24;margin-top:2px">⚡ 생각 중...</div>`:''}
+      ${thinking?`<div style="font-size:7px;color:#fbbf24;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100px">⚡ ${_esc((thinking.promptPreview||'').substring(0,20))}...</div>`:''}
       <div style="display:flex;gap:4px;margin-top:4px;justify-content:center;align-items:center;flex-wrap:wrap" onclick="event.stopPropagation()">
         <span onclick="changeAgentModel('${a.id}')" style="font-size:7px;color:#475569;cursor:pointer;background:#0f172a;padding:1px 4px;border-radius:3px" title="모델 변경">🧠 ${_esc(modelName)}</span>
         ${costVal>0?`<span style="font-size:7px;color:#94a3b8;background:#0f172a;padding:1px 4px;border-radius:3px">$${costVal.toFixed(4)}</span>`:''}
