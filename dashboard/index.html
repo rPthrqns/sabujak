@@ -500,6 +500,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     <div class="typing" id="typing"><div class="td"><span></span><span></span><span></span></div> <span id="typing-who">...</span></div>
     <div class="chat-input-area">
       <input class="chat-input" id="chat-input" data-i18n-ph="chatPlaceholder" placeholder="@멘션으로 에이전트에게 지시" />
+      <button onclick="openCrossNudgeModal()" style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:9px 10px;cursor:pointer;font-size:12px;color:#94a3b8;flex-shrink:0" title="아웃소싱">🔗</button>
       <button class="chat-send" id="chat-send" data-i18n="send" onclick="sendChat()">전송</button>
     </div>
   </div>
@@ -3101,130 +3102,6 @@ function openOrgChart(){
 function closeOrgChart(){
   document.getElementById('org-chart-overlay').style.display='none';
   document.getElementById('org-chart-panel').style.display='none';
-}
-
-// ─── Inline Org Chart (center tab) ───
-let _inlineOrgSim=null;
-function renderSwimlane(){
-  const c=companies.find(x=>x.id===currentCompany);
-  if(!c)return;
-  const svgEl=document.getElementById('org-inline-svg');
-  if(!svgEl)return;
-  if(_inlineOrgSim){_inlineOrgSim.stop();_inlineOrgSim=null;}
-  // === Hierarchical card layout (HTML overlay) ===
-  const container=svgEl.parentElement;
-  if(!container)return;
-  svgEl.style.display='none';
-  let htmlEl=container.querySelector('.org-html-tree');
-  if(!htmlEl){
-    htmlEl=document.createElement('div');htmlEl.className='org-html-tree';
-    htmlEl.style.cssText='width:100%;height:100%;overflow:auto;padding:12px;box-sizing:border-box';
-    // Zoom support
-    let _orgZoom=1;
-    htmlEl.addEventListener('wheel',e=>{
-      if(e.ctrlKey||e.metaKey){e.preventDefault();_orgZoom=Math.max(0.5,Math.min(2,_orgZoom+(e.deltaY<0?0.1:-0.1)));const inner=htmlEl.querySelector('.org-inner');if(inner)inner.style.transform=`scale(${_orgZoom})`;
-      }
-    },{passive:false});
-    container.appendChild(htmlEl);
-  }
-  const agents=c.agents||[];
-  // Build active comm pairs from recent chat (last 20 messages)
-  const recentChat=(c.chat||[]).slice(-20);
-  const activeComms=new Set();
-  recentChat.forEach(m=>{
-    if(!m.from||m.type==='system')return;
-    const fromId=(agents.find(a=>a.name===m.from)||{}).id||(m.from==='마스터'?'__master__':'');
-    const mentions=(m.text||'').match(/@(\w+)/g)||[];
-    mentions.forEach(mt=>{
-      const toId=mt.slice(1).toLowerCase();
-      if(fromId&&toId&&fromId!==toId)activeComms.add(`${fromId}:${toId}`);
-    });
-  });
-  const isCommActive=(a,b)=>activeComms.has(`${a}:${b}`)||activeComms.has(`${b}:${a}`);
-
-  // Build tree: agents with parent_agent go under their parent
-  const ceo=agents[0];
-  const getChildren=(parentId)=>agents.filter(a=>a.parent_agent===parentId&&a.id!==parentId);
-  const topLevel=agents.filter(a=>a.id!==(agents[0]?.id)&&!a.parent_agent);
-
-  const _card=(a,size)=>{
-    const isWorking=a.status==='working'||agentThinking[`${currentCompany}:${a.id}`];
-    const sc=isWorking?'#fbbf24':a.status==='active'?'#22c55e':a.status==='registering'?'#3b82f6':'#64748b';
-    const sl=isWorking?'⚡ 작업중':a.status==='active'?'● 활성':a.status==='registering'?'◌ 생성중':'○ 대기';
-    const tasks=cachedBoardTasks?cachedBoardTasks.filter(t=>t.agent_id===a.id):[];
-    const done=tasks.filter(t=>t.status==='완료').length,total=tasks.length;
-    const isLg=size==='lg';
-    const costVal=(a.cost?.total_cost||0);
-    const modelName=(a.model||'').split('/').pop()||'default';
-    const thinkKey=`${currentCompany}:${a.id}`;
-    const thinking=agentThinking[thinkKey];
-    // Pulsing ring for working agents
-    const pulseRing=isWorking?`<div style="position:absolute;inset:-3px;border-radius:${isLg?13:11}px;border:2px solid ${sc};animation:comm-glow 1.5s ease-in-out infinite;pointer-events:none"></div>`:'';
-    return `<div onclick="_inlineOrgChartNodeClick(${JSON.stringify(a).replace(/"/g,'&quot;')})" style="position:relative;background:linear-gradient(145deg,${isWorking?'#1a1710,#2a2520':'#0c1220,#162035'});border:1px solid ${isWorking?'#92400e':'#1e3a5f'};border-radius:${isLg?12:10}px;padding:${isLg?'10px 14px':'7px 10px'};cursor:pointer;transition:all .25s;min-width:${isLg?120:95}px;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.4)" onmouseover="this.style.transform='translateY(-3px) scale(1.02)';this.style.boxShadow='0 8px 24px rgba(0,0,0,.6)'" onmouseout="this.style.transform='';this.style.boxShadow='0 2px 12px rgba(0,0,0,.4)'">
-      ${pulseRing}
-      <div style="font-size:${isLg?26:20}px;margin-bottom:3px;filter:${isWorking?'brightness(1.2)':'none'}">${a.emoji||'🤖'}</div>
-      <div style="font-size:${isLg?12:10}px;font-weight:700;color:#f1f5f9;letter-spacing:.3px">${_esc(a.name)}</div>
-      <div style="font-size:8px;color:${sc};margin:3px 0;font-weight:600">${sl}</div>
-      <div style="font-size:7px;color:#64748b;margin-bottom:2px">${_esc(a.role||'')}</div>
-      ${total?`<div style="margin:4px auto 0;width:80%;height:4px;background:#0f172a;border-radius:2px;overflow:hidden"><div style="height:100%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:2px;width:${Math.round(done/total*100)}%;transition:width .5s"></div></div><div style="font-size:7px;color:#64748b;margin-top:2px">${done}/${total}</div>`:''}
-      ${thinking?`<div style="font-size:7px;color:#fbbf24;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100px">⚡ ${_esc((thinking.promptPreview||'').substring(0,20))}...</div>`:''}
-      <div style="display:flex;gap:4px;margin-top:4px;justify-content:center;align-items:center;flex-wrap:wrap" onclick="event.stopPropagation()">
-        <span onclick="changeAgentModel('${a.id}')" style="font-size:7px;color:#475569;cursor:pointer;background:#0f172a;padding:1px 4px;border-radius:3px" title="모델 변경">🧠 ${_esc(modelName)}</span>
-        ${costVal>0?`<span style="font-size:7px;color:#94a3b8;background:#0f172a;padding:1px 4px;border-radius:3px">$${costVal.toFixed(4)}</span>`:''}
-      </div>
-      <div style="display:flex;gap:2px;margin-top:3px;justify-content:center" onclick="event.stopPropagation()">
-        <button onclick="insertMention('${_esc(a.name)}')" style="background:#0f172a;border:none;border-radius:3px;color:#60a5fa;font-size:7px;padding:2px 5px;cursor:pointer">@</button>
-        <button onclick="reactivateAgent('${currentCompany}','${a.id}','${_esc(a.emoji)} ${_esc(a.name)}')" style="background:#0f172a;border:none;border-radius:3px;color:#94a3b8;font-size:7px;padding:2px 5px;cursor:pointer">🔄</button>
-        <button onclick="deleteAgent('${currentCompany}','${a.id}','${_esc(a.emoji)} ${_esc(a.name)}')" style="background:#0f172a;border:none;border-radius:3px;color:#ef4444;font-size:7px;padding:2px 5px;cursor:pointer">✕</button>
-      </div>
-    </div>`;
-  };
-  // Connector with glow + spark animation on active comm
-  const vConn=(fromId,toId)=>{
-    const active=isCommActive(fromId,toId);
-    if(!active) return `<div style="display:flex;justify-content:center"><div style="width:2px;height:22px;background:linear-gradient(to bottom,rgba(51,65,85,.6),rgba(51,65,85,.2));border-radius:1px"></div></div>`;
-    return `<div style="display:flex;justify-content:center;position:relative;height:22px">
-      <div style="width:3px;height:100%;background:linear-gradient(to bottom,#60a5fa,#3b82f6);border-radius:2px;box-shadow:0 0 10px #60a5fa,0 0 20px rgba(59,130,246,.4);animation:comm-glow 1.5s ease-in-out infinite"></div>
-      <div style="position:absolute;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;background:#93c5fd;box-shadow:0 0 6px #60a5fa;animation:spark-move 1s linear infinite"></div>
-      <div style="position:absolute;left:50%;transform:translateX(-50%);width:3px;height:3px;border-radius:50%;background:#bfdbfe;box-shadow:0 0 4px #93c5fd;animation:spark-move 1s linear infinite .5s"></div>
-    </div>`;
-  };
-
-  // Recursive tree renderer for sub-orgs
-  const renderSubTree=(parentId)=>{
-    const children=getChildren(parentId);
-    if(!children.length)return '';
-    return `<div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:2px">${children.map(ch=>{
-      const subChildren=getChildren(ch.id);
-      return `<div style="display:flex;flex-direction:column;align-items:center">
-        ${vConn(parentId,ch.id)}
-        ${_card(ch,'sm')}
-        ${subChildren.length?renderSubTree(ch.id):''}
-      </div>`;
-    }).join('')}</div>`;
-  };
-
-  const masterCard=`<div style="text-align:center;margin-bottom:2px">
-    <div style="background:linear-gradient(145deg,#1e1b4b,#312e81);border:2px solid #818cf8;border-radius:14px;padding:10px 24px;display:inline-block;box-shadow:0 4px 16px rgba(99,102,241,.25);position:relative">
-      <div style="position:absolute;inset:-2px;border-radius:16px;border:1px solid rgba(129,140,248,.3);pointer-events:none"></div>
-      <div style="font-size:28px;margin-bottom:2px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">👤</div>
-      <div style="font-size:12px;font-weight:700;color:#c7d2fe;letter-spacing:.5px">마스터</div>
-      <div style="font-size:7px;color:#818cf8;margin-top:2px">MASTER</div>
-    </div>
-  </div>`;
-  const ceoConn=ceo?vConn('__master__',ceo?.id||''):'';
-  const ceoCard=ceo?`<div style="display:flex;justify-content:center;margin-bottom:4px">${_card(ceo,'lg')}</div>`:'';
-  const ceoSubs=ceo?renderSubTree(ceo?.id||''):'';
-  // Top-level agents (no parent_agent, not CEO) go directly under CEO
-  const topRow=topLevel.length?`<div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:4px">${topLevel.map(a=>{
-    const subs=getChildren(a.id);
-    return `<div style="display:flex;flex-direction:column;align-items:center">
-      ${vConn(ceo?.id||'',a.id)}
-      ${_card(a,'sm')}
-      ${subs.length?renderSubTree(a.id):''}
-    </div>`;
-  }).join('')}</div>`:'';
-  htmlEl.innerHTML=`<div class="org-inner" style="transform-origin:top center;transition:transform .15s">${masterCard}${ceoConn}${ceoCard}${ceoSubs}${topRow}</div><div style="text-align:center;padding:4px;font-size:9px;color:var(--dim)">Ctrl+스크롤로 확대/축소 · 카드 클릭으로 상세</div>`;
 }
 
 async function _inlineOrgChartNodeClick(d){
