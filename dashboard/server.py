@@ -42,8 +42,8 @@ DATA = Path(os.environ.get('DATA_DIR', str(BASE / "data")))
 COMPANIES_FILE = DATA / "companies.json"
 
 # ─── Timeouts (seconds) ───
-AGENT_RUN_TIMEOUT = int(os.environ.get('AGENT_TIMEOUT', 90))
-AGENT_RETRY_TIMEOUT = int(os.environ.get('AGENT_RETRY_TIMEOUT', 60))
+AGENT_RUN_TIMEOUT = int(os.environ.get('AGENT_TIMEOUT', 180))
+AGENT_RETRY_TIMEOUT = int(os.environ.get('AGENT_RETRY_TIMEOUT', 120))
 AGENT_INIT_TIMEOUT = 30
 AGENT_POLL_INTERVAL = 3
 MAX_CONCURRENT_AGENTS = int(os.environ.get('MAX_CONCURRENT', 2))

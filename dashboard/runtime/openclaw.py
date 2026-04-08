@@ -13,7 +13,18 @@ class OpenClawRuntime(AgentRuntime):
         Detects new responses by checking mtime changes and reading last assistant entry."""
         import json as _json
         sessions_dir = Path.home() / '.openclaw' / 'agents' / agent_id / 'sessions'
-        # Record launch timestamp
+        # Record last assistant message ID before launch
+        pre_id = None
+        if sessions_dir.exists():
+            for sf in sorted(sessions_dir.glob('*.jsonl'), key=lambda x: x.stat().st_mtime, reverse=True):
+                try:
+                    for line in reversed(sf.read_text(errors='replace').strip().split('\n')):
+                        entry = _json.loads(line)
+                        if entry.get('type') == 'message' and entry.get('message',{}).get('role') == 'assistant':
+                            pre_id = entry.get('id')
+                            break
+                except: pass
+                if pre_id: break
         launch_ts = time.time()
         # Launch openclaw
         proc = subprocess.Popen(
@@ -46,7 +57,7 @@ class OpenClawRuntime(AgentRuntime):
                     last_check_size = st.st_size
                 except OSError:
                     continue
-                # Read entire file, find LAST assistant message with real content
+                # Read file, find NEW assistant text (not seen before launch)
                 try:
                     lines = f.read_text(errors='replace').strip().split('\n')
                     for line in reversed(lines):
@@ -57,6 +68,9 @@ class OpenClawRuntime(AgentRuntime):
                             if entry.get('type') == 'message':
                                 msg = entry.get('message', {})
                                 if msg.get('role') == 'assistant':
+                                    eid = entry.get('id', '')
+                                    if eid == pre_id:
+                                        break  # Reached pre-launch message, stop
                                     texts = [c.get('text', '') for c in msg.get('content', []) if c.get('type') == 'text']
                                     candidate = '\n'.join(texts).strip() if texts else ''
                                     if candidate and candidate != 'NO_REPLY' and len(candidate) > 5:
