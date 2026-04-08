@@ -342,11 +342,13 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
       <!-- ① 조직 탭 -->
       <div class="tab-pane active" id="tab-orgchart" style="position:relative;flex-direction:column">
         <svg id="agent-graph" style="display:none;width:0;height:0;position:absolute"></svg>
-        <!-- Org chart + Live feed split -->
+        <!-- Org chart (40%) + Live feed (60%) split -->
         <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
-          <svg id="org-inline-svg" style="width:100%;flex:0 0 auto;max-height:45%"></svg>
+          <div style="flex:0 0 40%;max-height:40%;overflow-y:auto">
+            <svg id="org-inline-svg" style="width:100%"></svg>
+          </div>
           <!-- Live Activity Feed -->
-          <div style="flex:1;border-top:1px solid #1e293b;display:flex;flex-direction:column;min-height:0">
+          <div style="flex:1;border-top:1px solid #1e293b;display:flex;flex-direction:column;min-height:120px">
             <div style="padding:4px 10px;display:flex;align-items:center;gap:4px;flex-shrink:0;background:#0a0a1a">
               <span style="font-size:9px;font-weight:600;color:var(--dim)">⚡ LIVE</span>
               <span id="live-feed-count" style="font-size:8px;color:#475569"></span>
