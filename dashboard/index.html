@@ -345,8 +345,15 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   <!-- Main: Tabbed panel (조직도 + 대기열·결재·연혁·정기·결과물·리포트) -->
   <div class="panel" style="padding:0;overflow:hidden">
     <div style="display:flex;flex-direction:column;flex:1;overflow:hidden">
-      <!-- 수영장 (항상 표시) -->
-      <div style="display:flex;flex-direction:column;flex:1;position:relative;overflow:hidden">
+      <div class="center-tabs" style="display:flex;gap:2px;padding:4px 8px;border-bottom:1px solid #1e293b;flex-shrink:0">
+        <button class="center-tab active" onclick="switchCenterTab('orgchart')">⚡ 타임라인</button>
+        <button class="center-tab" onclick="switchCenterTab('work')">📋 작업</button>
+        <button class="center-tab" onclick="switchCenterTab('manage')">🔔 관리</button>
+        <button class="center-tab" onclick="switchCenterTab('analytics')">📈 분석</button>
+        <button class="center-tab" onclick="switchCenterTab('docs')">📂 자료</button>
+      </div>
+      <!-- ① 타임라인 -->
+      <div class="tab-pane active" id="tab-orgchart" style="position:relative;flex-direction:column">
         <svg id="agent-graph" style="display:none"></svg>
         <svg id="org-inline-svg" style="display:none"></svg>
         <div id="live-feed" style="display:none"></div>
@@ -361,32 +368,26 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
         </div>
       </div>
       <!-- ② 작업 탭: 칸반(좌) + 목표·스프린트(우) -->
-      <div class="tab-pane" id="tab-work" style="display:none;flex-direction:row">
+      <div class="tab-pane" id="tab-work" style="flex-direction:row">
         <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid #1e293b;overflow:hidden">
           <div style="padding:6px 10px;border-bottom:1px solid #1e293b;font-size:10px;font-weight:600;color:var(--dim)">📋 칸반 대기열</div>
           <div class="kanban-wrapper" style="flex:1;overflow-y:auto"><div class="kanban-board" id="kanban-board"></div></div>
         </div>
         <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
           <div style="padding:6px 10px;border-bottom:1px solid #1e293b;display:flex;align-items:center;gap:4px">
-            <span style="font-size:10px;font-weight:600;color:var(--dim)">🎯 목표 · 🏃 스프린트</span>
-            <button onclick="createSprint()" style="margin-left:auto;background:var(--accent);color:white;border:none;border-radius:4px;font-size:9px;padding:2px 6px;cursor:pointer">＋ 스프린트</button>
-            <button onclick="runStandup()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:4px;font-size:9px;padding:2px 6px;cursor:pointer">📋 스탠드업</button>
+            <span style="font-size:10px;font-weight:600;color:var(--dim)">📋 계획 트리</span>
+            <button onclick="addPlanTask(null)" style="margin-left:auto;background:var(--accent);color:white;border:none;border-radius:4px;font-size:9px;padding:2px 6px;cursor:pointer">＋ 계획</button>
           </div>
           <div style="flex:1;overflow-y:auto;padding:8px">
-            <div id="goals-tab-panel"></div>
-            <div style="margin-top:8px;border-top:1px solid #1e293b;padding-top:8px" id="sprint-panel"></div>
+            <div id="plan-task-tree"></div>
           </div>
         </div>
       </div>
       <!-- ③ 관리 탭: 결재·리스크(좌) + 마일스톤·계획(우) -->
-      <div class="tab-pane" id="tab-manage" style="display:none;flex-direction:row">
+      <div class="tab-pane" id="tab-manage" style="flex-direction:row">
         <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid #1e293b;overflow:hidden">
           <div style="padding:4px 8px;border-bottom:1px solid #1e293b;display:flex;gap:2px;flex-wrap:wrap">
-            <button class="sub-tab active" onclick="_switchManageSub(this,'m-approvals')">📋 기안</button>
-            <button class="sub-tab" onclick="_switchManageSub(this,'m-risk')">⚠️ 리스크</button>
-            <button class="sub-tab" onclick="_switchManageSub(this,'m-announce')">📢 공지</button>
-            <button class="sub-tab" onclick="_switchManageSub(this,'m-audit')">🔍 감사</button>
-            <button onclick="addRisk()" style="margin-left:auto;background:var(--accent);color:white;border:none;border-radius:3px;font-size:8px;padding:2px 5px;cursor:pointer">＋</button>
+            <span style="font-size:10px;font-weight:600;color:var(--dim)">📋 기안결재</span>
           </div>
           <div style="flex:1;overflow-y:auto;padding:8px">
             <div id="m-approvals"><div id="approvals-panel"></div></div>
@@ -397,12 +398,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
         </div>
         <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
           <div style="padding:4px 8px;border-bottom:1px solid #1e293b;display:flex;gap:2px;flex-wrap:wrap">
-            <button class="sub-tab active" onclick="_switchManageRight(this,'m-milestone')">🚩 마일스톤</button>
-            <button class="sub-tab" onclick="_switchManageRight(this,'m-plan')">📋 계획</button>
-            <button class="sub-tab" onclick="_switchManageRight(this,'m-policy')">📜 사규</button>
-            <button class="sub-tab" onclick="_switchManageRight(this,'m-budget')">💵 예산</button>
-            <button class="sub-tab" onclick="_switchManageRight(this,'m-vote')">🗳️ 투표</button>
-            <button onclick="addMilestone()" style="margin-left:auto;background:var(--accent);color:white;border:none;border-radius:3px;font-size:8px;padding:2px 5px;cursor:pointer">＋</button>
+            <span style="font-size:10px;font-weight:600;color:var(--dim)">📋 계획</span>
+            <button onclick="addPlanTask(null)" style="margin-left:auto;background:var(--accent);color:white;border:none;border-radius:3px;font-size:8px;padding:2px 5px;cursor:pointer">＋</button>
           </div>
           <div style="flex:1;overflow-y:auto;padding:8px">
             <div id="m-milestone"><div id="milestone-panel"></div></div>
@@ -414,7 +411,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
         </div>
       </div>
       <!-- ④ 분석 탭: KPI(좌) + 리포트(우) -->
-      <div class="tab-pane" id="tab-analytics" style="display:none;flex-direction:row">
+      <div class="tab-pane" id="tab-analytics" style="flex-direction:row">
         <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid #1e293b;overflow:hidden">
           <div style="padding:6px 10px;border-bottom:1px solid #1e293b;display:flex;align-items:center;gap:4px">
             <span style="font-size:10px;font-weight:600;color:var(--dim)">📈 KPI 대시보드</span>
@@ -425,8 +422,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
         </div>
         <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
           <div style="padding:4px 8px;border-bottom:1px solid #1e293b;display:flex;gap:2px">
-            <button class="sub-tab active" onclick="_switchAnalRight(this,'a-report')">📊 리포트</button>
-            <button class="sub-tab" onclick="_switchAnalRight(this,'a-crm')">👥 CRM</button>
+            <span style="font-size:10px;font-weight:600;color:var(--dim)">📊 리포트</span>
             <button onclick="startDailyReport()" style="margin-left:auto;background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;font-size:8px;padding:2px 5px;cursor:pointer">📊 데일리</button>
             <button onclick="refreshReport()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;font-size:8px;padding:2px 5px;cursor:pointer">🔄</button>
             <button onclick="generateReport('weekly')" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;font-size:8px;padding:2px 5px;cursor:pointer">📝 주간</button>
@@ -438,7 +434,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
         </div>
       </div>
       <!-- ⑤ 자료 탭: 위키(좌) + 결과물·정기(우) -->
-      <div class="tab-pane" id="tab-docs" style="display:none;flex-direction:row">
+      <div class="tab-pane" id="tab-docs" style="flex-direction:row">
         <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid #1e293b;overflow:hidden">
           <div style="padding:6px 10px;border-bottom:1px solid #1e293b;display:flex;align-items:center;gap:4px">
             <span style="font-size:10px;font-weight:600;color:var(--dim)">📖 지식 베이스</span>
