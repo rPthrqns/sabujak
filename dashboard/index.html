@@ -917,7 +917,7 @@ async function selectCompany(cid){
   activeAgentFilter=null;
   document.getElementById('org-inline-panel').style.display='none';
   await refreshCompany();
-  if(currentCenterTab==='orgchart')setTimeout(renderInlineOrgChart,100);
+  if(currentCenterTab==='orgchart')renderSwimlane();
 }
 
 async function refreshCompany(){
@@ -1008,7 +1008,7 @@ function renderCompanyUI(c){
   }
   document.getElementById('task-list').innerHTML=taskHtml;
   updateInitOverlay(c.agents);
-  if(currentCenterTab==='orgchart')setTimeout(renderInlineOrgChart,50);
+  if(currentCenterTab==='orgchart')renderSwimlane();
 }
 
 // ─── Goals Rendering ───
@@ -1485,7 +1485,7 @@ function filterAgentChat(agentId,agentName,agentEmoji){
 function renderPanels(){
   const company=companies.find(c=>c.id===currentCompany);
   if(!company)return;
-  if(currentCenterTab==='orgchart')setTimeout(renderInlineOrgChart,50);
+  if(currentCenterTab==='orgchart')renderSwimlane();
   const chatEl=document.getElementById('chat-messages');
   const taskEl=document.getElementById('task-list');
   const titleEl=document.getElementById('chat-title');
@@ -2005,7 +2005,7 @@ async function changeAgentModel(agentId){
     if(!choice)return;
     const r=await fetch(`/api/agent-model/${currentCompany}/${agentId}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:choice.trim()})});
     const d=await r.json();
-    if(d.ok){toast(`🧠 ${agentId} 모델 → ${choice.trim()}`);renderInlineOrgChart();}
+    if(d.ok){toast(`🧠 ${agentId} 모델 → ${choice.trim()}`);renderSwimlane();}
     else toast('변경 실패: '+(d.error||''));
   }catch(e){toast('오류: '+e.message);}
 }
@@ -2873,7 +2873,7 @@ function connectSSE(){
       },1000);
       agentThinking[key]._timer=_thinkTimer;
       // Org chart refresh
-      if(currentCenterTab==='orgchart')renderInlineOrgChart();
+      if(currentCenterTab==='orgchart')renderSwimlane();
     }
   }catch(err){console.warn('SSE agent_thinking parse error',err)}});
   es.addEventListener('agent_done',e=>{try{
@@ -2892,7 +2892,7 @@ function connectSSE(){
       document.getElementById('typing-who').textContent=`${remaining} 생각 중...`;
     }
     _feedFromDone(d);
-    if(d.cid===currentCompany&&currentCenterTab==='orgchart')renderInlineOrgChart();
+    if(d.cid===currentCompany&&currentCenterTab==='orgchart')renderSwimlane();
   }catch(err){console.warn('SSE agent_done parse error',err)}});
   es.addEventListener('approval',e=>{try{
     const d=JSON.parse(e.data);
@@ -3111,7 +3111,7 @@ function closeOrgChart(){
 
 // ─── Inline Org Chart (center tab) ───
 let _inlineOrgSim=null;
-function renderInlineOrgChart(){
+function renderSwimlane(){
   const c=companies.find(x=>x.id===currentCompany);
   if(!c)return;
   const svgEl=document.getElementById('org-inline-svg');
