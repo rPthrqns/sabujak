@@ -361,7 +361,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
         </div>
       </div>
       <!-- ② 작업 탭: 칸반(좌) + 목표·스프린트(우) -->
-      <div class="tab-pane" id="tab-work" style="flex-direction:row">
+      <div class="tab-pane" id="tab-work" style="display:none;flex-direction:row">
         <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid #1e293b;overflow:hidden">
           <div style="padding:6px 10px;border-bottom:1px solid #1e293b;font-size:10px;font-weight:600;color:var(--dim)">📋 칸반 대기열</div>
           <div class="kanban-wrapper" style="flex:1;overflow-y:auto"><div class="kanban-board" id="kanban-board"></div></div>
@@ -379,7 +379,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
         </div>
       </div>
       <!-- ③ 관리 탭: 결재·리스크(좌) + 마일스톤·계획(우) -->
-      <div class="tab-pane" id="tab-manage" style="flex-direction:row">
+      <div class="tab-pane" id="tab-manage" style="display:none;flex-direction:row">
         <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid #1e293b;overflow:hidden">
           <div style="padding:4px 8px;border-bottom:1px solid #1e293b;display:flex;gap:2px;flex-wrap:wrap">
             <button class="sub-tab active" onclick="_switchManageSub(this,'m-approvals')">📋 기안</button>
@@ -414,7 +414,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
         </div>
       </div>
       <!-- ④ 분석 탭: KPI(좌) + 리포트(우) -->
-      <div class="tab-pane" id="tab-analytics" style="flex-direction:row">
+      <div class="tab-pane" id="tab-analytics" style="display:none;flex-direction:row">
         <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid #1e293b;overflow:hidden">
           <div style="padding:6px 10px;border-bottom:1px solid #1e293b;display:flex;align-items:center;gap:4px">
             <span style="font-size:10px;font-weight:600;color:var(--dim)">📈 KPI 대시보드</span>
@@ -438,7 +438,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
         </div>
       </div>
       <!-- ⑤ 자료 탭: 위키(좌) + 결과물·정기(우) -->
-      <div class="tab-pane" id="tab-docs" style="flex-direction:row">
+      <div class="tab-pane" id="tab-docs" style="display:none;flex-direction:row">
         <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid #1e293b;overflow:hidden">
           <div style="padding:6px 10px;border-bottom:1px solid #1e293b;display:flex;align-items:center;gap:4px">
             <span style="font-size:10px;font-weight:600;color:var(--dim)">📖 지식 베이스</span>
