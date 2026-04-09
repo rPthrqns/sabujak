@@ -28,13 +28,15 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .banner button{border:1px solid #92400e;border-radius:3px;padding:2px 6px;font-size:9px;cursor:pointer;background:transparent;color:#fbbf24}
 
 /* Narrative Panel */
-.narrative-panel{background:linear-gradient(135deg,#111827,#1a1a2e);border:1px solid var(--border);border-radius:8px;margin:8px 12px 0;flex-shrink:0;display:none;overflow:hidden}
+.narrative-panel{background:linear-gradient(135deg,#111827ee,#1a1a2eee);border:1px solid var(--border);border-radius:8px;
+  position:absolute;top:8px;left:12px;right:12px;z-index:10;display:none;overflow:hidden;
+  backdrop-filter:blur(8px);box-shadow:0 4px 24px rgba(0,0,0,.5)}
 .narrative-header{display:flex;align-items:center;gap:6px;padding:8px 12px;cursor:pointer;font-size:12px;font-weight:600;color:#fbbf24;user-select:none}
 .narrative-header:hover{background:rgba(251,191,36,.05)}
 .narrative-toggle{font-size:9px;color:var(--dim);transition:transform .2s}
 .narrative-panel.open .narrative-toggle{transform:rotate(90deg)}
 .narrative-body{max-height:0;overflow:hidden;transition:max-height .3s ease}
-.narrative-panel.open .narrative-body{max-height:300px;overflow-y:auto}
+.narrative-panel.open .narrative-body{max-height:130px;overflow-y:auto}
 .narrative-event{display:flex;align-items:flex-start;gap:6px;padding:4px 12px;font-size:11px;line-height:1.5;border-top:1px solid rgba(30,58,95,.4)}
 .narrative-event .ne-icon{flex-shrink:0;width:16px;text-align:center}
 .narrative-event .ne-text{flex:1;color:var(--text)}
@@ -47,15 +49,21 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .narrative-empty{padding:8px 12px;font-size:11px;color:var(--dim);text-align:center}
 
 /* Fog of War Map */
-.fog-map{flex:1;overflow:auto;position:relative;background:var(--bg)}
+.fog-map{flex:1;overflow:auto;position:relative;background:var(--bg);cursor:grab}
+.fog-map:active{cursor:grabbing}
+.map-zoom-ctrl{position:absolute;bottom:12px;left:12px;z-index:10;display:flex;gap:4px}
+.map-zoom-ctrl button{width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.map-zoom-ctrl button:hover{background:var(--card);border-color:var(--accent)}
+.map-zoom-ctrl span{font-size:9px;color:var(--dim);line-height:28px;padding:0 4px}
 .fog-map::before{content:'';position:absolute;inset:0;pointer-events:none;
   background-image:linear-gradient(rgba(30,58,95,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(30,58,95,.12) 1px,transparent 1px);
   background-size:40px 40px;z-index:0}
-.map-grid{display:grid;gap:6px;padding:24px;position:relative;z-index:1;
+.map-grid{display:grid;gap:6px;padding:24px;position:relative;z-index:1;transform-origin:center center;transition:transform .2s ease;
   justify-content:center;margin:0 auto;min-height:100%}
 .map-block{width:120px;height:90px;border-radius:10px;position:relative;cursor:default;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
   transition:all .4s ease;font-size:11px;overflow:hidden;border:1.5px solid transparent}
+.map-block.working,.map-block.thinking{width:140px;height:110px;z-index:2}
 
 /* Fog state */
 .map-block.fog{background:rgba(15,23,42,.7);border-color:rgba(30,58,95,.2);opacity:.18;cursor:default}
@@ -73,10 +81,23 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 @keyframes hazyPulse{0%,100%{opacity:.3}50%{opacity:.8}}
 
 /* Working/Pulsing state */
-.map-block.working{background:rgba(30,41,59,.85);opacity:1;cursor:pointer;
-  animation:workingPulse 2s ease-in-out infinite}
-.map-block.working .block-title{color:#f1f5f9;font-weight:600}
-@keyframes workingPulse{0%,100%{box-shadow:0 0 8px rgba(59,130,246,.2)}50%{box-shadow:0 0 20px rgba(59,130,246,.45)}}
+.map-block.working{background:rgba(30,41,59,.95);opacity:1;cursor:pointer;
+  border-width:2px;animation:workingPulse 1.5s ease-in-out infinite;position:relative;overflow:visible}
+.map-block.working::after{content:'';position:absolute;inset:-4px;border-radius:14px;
+  border:2px dashed rgba(59,130,246,.5);animation:workingSpin 8s linear infinite}
+.map-block.working .block-title{color:#f1f5f9;font-weight:700;font-size:11px}
+.map-block.working .block-speech{font-size:8px;color:#94a3b8;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+@keyframes workingPulse{0%,100%{box-shadow:0 0 10px rgba(59,130,246,.3),inset 0 0 15px rgba(59,130,246,.05)}50%{box-shadow:0 0 30px rgba(59,130,246,.6),inset 0 0 25px rgba(59,130,246,.1)}}
+@keyframes workingSpin{to{transform:rotate(360deg)}}
+
+/* Thinking state (agent is actively processing) */
+.map-block.thinking{background:rgba(30,41,59,.95);opacity:1;cursor:pointer;
+  border-width:2px;border-color:rgba(251,191,36,.7)!important;animation:thinkingGlow 1s ease-in-out infinite;position:relative;overflow:visible}
+.map-block.thinking::after{content:'⚡';position:absolute;top:-8px;right:-8px;font-size:16px;
+  animation:thinkingBolt .8s ease-in-out infinite;z-index:3}
+.map-block.thinking .block-title{color:#fbbf24;font-weight:700}
+@keyframes thinkingGlow{0%,100%{box-shadow:0 0 15px rgba(251,191,36,.3)}50%{box-shadow:0 0 40px rgba(251,191,36,.7),0 0 60px rgba(251,191,36,.2)}}
+@keyframes thinkingBolt{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.3);opacity:.5}}
 
 /* Done/Bright state */
 .map-block.done{background:rgba(30,41,59,.95);opacity:1;cursor:pointer;
@@ -120,8 +141,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 @keyframes agentFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 .block-result{font-size:8px;color:var(--green);margin-top:2px;cursor:pointer}
 .block-result:hover{text-decoration:underline}
-.block-progress{width:60%;height:3px;background:#1e293b;border-radius:2px;overflow:hidden;margin-top:2px}
+.block-progress{width:70%;height:3px;background:#1e293b;border-radius:2px;overflow:hidden;margin-top:3px}
 .block-progress-fill{height:100%;border-radius:2px;transition:width .4s}
+@keyframes progressPulse{0%,100%{opacity:1}50%{opacity:.4}}
 
 /* Quadrant labels */
 .quadrant-label{position:absolute;font-size:10px;font-weight:700;letter-spacing:1px;opacity:.25;pointer-events:none;z-index:0;text-transform:uppercase}
@@ -155,7 +177,15 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .cmd-input{flex:1;background:var(--card);border:1px solid #374151;border-radius:10px;padding:8px 14px;color:var(--text);font-size:13px;outline:none}
 .cmd-input:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(59,130,246,.2)}
 .cmd-input::placeholder{color:#475569}
-.cmd-send{background:var(--accent);color:white;border:none;border-radius:10px;padding:8px 18px;cursor:pointer;font-size:12px;font-weight:600}
+.cmd-send{background:var(--accent);color:white;border:none;border-radius:10px;padding:8px 18px;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s}
+.cmd-send:active{transform:scale(.95)}
+.cmd-sent{display:none;align-items:center;gap:8px;font-size:11px;overflow:hidden}
+.cmd-bar.show .cmd-sent.visible{display:flex}
+.cmd-sent-msg{color:#a5b4fc;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;animation:sentSlideIn .3s ease}
+.cmd-sent-status{color:var(--dim);font-size:10px;display:flex;align-items:center;gap:4px}
+.cmd-sent-status .dot-pulse{width:6px;height:6px;border-radius:50%;background:var(--yellow);animation:dotPulse 1s ease-in-out infinite}
+@keyframes sentSlideIn{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}
+@keyframes dotPulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}
 
 /* Side drawer */
 .drawer-toggle{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:50;display:flex;flex-direction:column;gap:2px}
@@ -274,30 +304,39 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   <button onclick="openCreate()" class="btn-primary" style="padding:12px 28px;font-size:14px">＋ 새 회사 만들기</button>
 </div>
 
-<!-- Event Narrative Panel -->
-<div class="narrative-panel" id="narrative-panel">
-  <div class="narrative-header" onclick="toggleNarrative()">
-    <span class="narrative-toggle">▶</span>
-    <span>📰 오늘의 사건</span>
-    <span id="narrative-count" style="font-size:9px;color:var(--dim);font-weight:400"></span>
-  </div>
-  <div class="narrative-body" id="narrative-body"></div>
-</div>
-
 <!-- Fog of War Map (main area) -->
 <div class="fog-map" id="fog-map" style="display:none">
+  <!-- Event Narrative Panel (overlays on top of map) -->
+  <div class="narrative-panel open" id="narrative-panel">
+    <div class="narrative-header" onclick="toggleNarrative()">
+      <span class="narrative-toggle">▶</span>
+      <span>📰 오늘의 사건</span>
+      <span id="narrative-count" style="font-size:9px;color:var(--dim);font-weight:400"></span>
+    </div>
+    <div class="narrative-body" id="narrative-body"></div>
+  </div>
   <div class="quadrant-label ql-plan">기획 Planning</div>
   <div class="quadrant-label ql-dev">개발 Development</div>
   <div class="quadrant-label ql-market">마케팅 Marketing</div>
   <div class="quadrant-label ql-design">디자인 Design</div>
   <div class="map-grid" id="map-grid"></div>
+  <div class="map-zoom-ctrl">
+    <button onclick="mapZoom(-1)" title="축소">−</button>
+    <span id="zoom-level">100%</span>
+    <button onclick="mapZoom(1)" title="확대">+</button>
+    <button onclick="mapZoom(0)" title="리셋">⟲</button>
+  </div>
 </div>
 
 <!-- Command Bar -->
 <div class="cmd-bar" id="cmd-bar">
+  <div class="cmd-sent" id="cmd-sent">
+    <span class="cmd-sent-msg" id="cmd-sent-msg"></span>
+    <span class="cmd-sent-status" id="cmd-sent-status"><span class="dot-pulse"></span> 처리 중...</span>
+  </div>
   <div class="cmd-chips" id="cmd-chips"></div>
   <input class="cmd-input" id="cmd-input" placeholder="@에이전트 지시사항 입력..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}">
-  <button class="cmd-send" onclick="send()">⏎</button>
+  <button class="cmd-send" id="cmd-send-btn" onclick="send()">⏎</button>
 </div>
 
 <!-- Side drawer toggle buttons -->
@@ -306,7 +345,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   <button onclick="toggleDrawer('approvals')" id="dt-approvals" title="결재" style="position:relative">🔔<span class="badge" id="apr-badge" style="display:none">0</span></button>
   <button onclick="toggleDrawer('plan')" id="dt-plan" title="계획">🗂️</button>
   <button onclick="toggleDrawer('files')" id="dt-files" title="자료">📂</button>
-  <button onclick="toggleDrawer('priorities')" id="dt-priorities" title="우선순위">⚡</button>
+
 </div>
 
 <!-- Side drawer -->
@@ -437,7 +476,7 @@ const agentLog={};
 async function load(){
   try{cos=(await(await fetch('/api/companies')).json())}catch(e){cos=[]}
   renderTabs();
-  if(!cos.length){$('empty').style.display='block';$('fog-map').style.display='none';$('narrative-panel').style.display='none';$('cmd-bar').classList.remove('show');$('drawer-btns').style.display='none'}
+  if(!cos.length){$('empty').style.display='block';$('fog-map').style.display='none';$('cmd-bar').classList.remove('show');$('drawer-btns').style.display='none'}
   else{$('empty').style.display='none';$('fog-map').style.display='block';$('cmd-bar').classList.add('show');$('drawer-btns').style.display='';if(!cur||!cos.find(c=>c.id===cur))sel(cos[0].id);else refresh()}
 }
 function renderTabs(){$('tabs').innerHTML=cos.map(c=>`<div class="tab ${c.id===cur?'active':''}" onclick="sel('${c.id}')">${_e(c.name)}<span class="x" onclick="event.stopPropagation();delCo('${c.id}','${_e(c.name)}')">✕</span></div>`).join('')}
@@ -488,7 +527,7 @@ function toggleNarrative(){
 function renderNarrative(events){
   const panel=$('narrative-panel');
   if(!panel)return;
-  if(!cur){panel.style.display='none';return}
+  if(!cur)return;
   panel.style.display='block';
   if(narrativeOpen)panel.classList.add('open');
   const body=$('narrative-body');
@@ -503,6 +542,24 @@ function renderNarrative(events){
     return`<div class="narrative-event ${cls}"><span class="ne-icon">${ev.icon||'•'}</span><span class="ne-text">${_e(ev.text)}</span><span class="ne-time">${ev.time||''}</span></div>`;
   }).join('');
 }
+
+// ─── Map Zoom ───
+let _mapScale=1;
+function mapZoom(dir){
+  if(dir===0)_mapScale=1;
+  else _mapScale=Math.max(.4,Math.min(2,_mapScale+dir*.15));
+  const grid=$('map-grid');if(grid)grid.style.transform=`scale(${_mapScale})`;
+  const lbl=$('zoom-level');if(lbl)lbl.textContent=Math.round(_mapScale*100)+'%';
+}
+// Ctrl+scroll zoom on the map
+document.addEventListener('DOMContentLoaded',()=>{
+  const fm=$('fog-map');if(!fm)return;
+  fm.addEventListener('wheel',e=>{
+    if(!e.ctrlKey)return;
+    e.preventDefault();
+    mapZoom(e.deltaY<0?1:-1);
+  },{passive:false});
+});
 
 // ─── Fog of War Map ───
 const CAT_KEYWORDS={
@@ -579,7 +636,10 @@ function renderFogMap(){
     const cat=detectCategory(t.title);
     let state='hazy';
     if(t.status==='완료')state='done';
-    else if(t.status==='진행중')state='working';
+    else if(t.status==='진행중'){
+      // Check if this agent is actively thinking right now
+      state=agent&&thinking[cur+':'+agent.id]?'thinking':'working';
+    }
     else state='hazy';
     // Check if blocked by approval
     if(pendingApprovalTasks.has(t.id)||pendingApprovalTasks.has(t.title))state='blocked';
@@ -673,7 +733,7 @@ function renderMapBlock(b,gridR,gridC){
   const catCls=CAT_META[b.cat]?CAT_META[b.cat].cls:'';
   const stateCls=b.state;
   const agentIcon=b.agent?`<span class="block-agent">${b.agent.emoji||'🤖'}</span>`:'';
-  const stateIcon=b.state==='done'?'✨':b.state==='working'?'🔄':b.state==='blocked'?'⚠️':b.state==='hazy'?'◻️':'🌫️';
+  const stateIcon=b.state==='done'?'✨':b.state==='thinking'?'⚡':b.state==='working'?'🔄':b.state==='blocked'?'⚠️':b.state==='hazy'?'◻️':'🌫️';
 
   let inner='';
   if(b.state==='fog'){
@@ -688,9 +748,19 @@ function renderMapBlock(b,gridR,gridC){
     if(b.state==='done'){
       inner+=`<span class="block-result" onclick="event.stopPropagation();showBlockDetail('${b.id}')">📄 결과보기</span>`;
     }
-    if(b.state==='working'){
-      // Show a small progress bar
-      inner+=`<div class="block-progress"><div class="block-progress-fill" style="width:60%;background:linear-gradient(90deg,#3b82f6,#60a5fa)"></div></div>`;
+    if(b.state==='working'||b.state==='thinking'){
+      // Show last speech snippet + progress
+      const logs=b.agent?agentLog[b.agent.id]:null;
+      const lastMsg=logs&&logs.length?logs[logs.length-1].raw:'';
+      if(lastMsg){
+        const snippet=_e(lastMsg.replace(/^##\s*/gm,'').replace(/\n/g,' ').substring(0,25));
+        inner+=`<span class="block-speech">💬 ${snippet}...</span>`;
+      }
+      if(b.state==='thinking'){
+        inner+=`<div class="block-progress"><div class="block-progress-fill" style="width:100%;background:linear-gradient(90deg,#fbbf24,#f59e0b);animation:progressPulse 1s ease-in-out infinite"></div></div>`;
+      }else{
+        inner+=`<div class="block-progress"><div class="block-progress-fill" style="width:70%;background:linear-gradient(90deg,#3b82f6,#60a5fa)"></div></div>`;
+      }
     }
     // Tooltip
     const logs=b.agent?agentLog[b.agent.id]:null;
@@ -701,7 +771,7 @@ function renderMapBlock(b,gridR,gridC){
   inner+=agentIcon;
 
   const clickHandler=b.state==='done'?`onclick="showBlockDetail('${b.id}')"`
-    :b.state==='working'?`onclick="showBlockSpeech('${b.agent?b.agent.id:''}')"`
+    :b.state==='working'||b.state==='thinking'?`onclick="showBlockSpeech('${b.agent?b.agent.id:''}')"`
     :b.state==='blocked'?`onclick="showBlockDetail('${b.id}')"`:'';
 
   return`<div class="map-block ${stateCls} ${catCls}" style="grid-row:${gridR};grid-column:${gridC}" ${clickHandler}>${inner}</div>`;
@@ -782,9 +852,43 @@ function directMsg(name){
 
 // ─── Command Bar ───
 function ins(n){const i=$('cmd-input');i.value+='@'+n+' ';i.focus()}
+function _setCmdBarLock(locked,msg){
+  const inp=$('cmd-input'),btn=$('cmd-send-btn');
+  if(locked){
+    if(inp){inp.disabled=true;inp.placeholder=msg||'⏳ 준비 중...';inp.style.opacity='.4'}
+    if(btn){btn.disabled=true;btn.style.opacity='.4'}
+  }else{
+    if(inp){inp.disabled=false;inp.placeholder='@에이전트 지시사항 입력...';inp.style.opacity=''}
+    if(btn){btn.disabled=false;btn.style.opacity=''}
+  }
+}
 async function send(){
-  const i=$('cmd-input'),t=i.value.trim();if(!t||!cur)return;i.value='';
-  try{await fetch(`/api/chat/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})})}catch(e){}
+  const i=$('cmd-input'),t=i.value.trim();if(!t||!cur)return;
+  i.value='';
+  // Show sent confirmation
+  const sentEl=$('cmd-sent'),msgEl=$('cmd-sent-msg'),statusEl=$('cmd-sent-status'),btn=$('cmd-send-btn');
+  const target=(t.match(/@(\w+)/)||[])[1]||'';
+  const preview=t.length>40?t.substring(0,40)+'...':t;
+  if(msgEl)msgEl.textContent=`📤 "${preview}"`;
+  if(statusEl)statusEl.innerHTML='<span class="dot-pulse"></span> '+(target?`${target.toUpperCase()} 전달 중...`:'전송 중...');
+  if(sentEl)sentEl.classList.add('visible');
+  if(btn){btn.textContent='✓';btn.style.background='#065f46';setTimeout(()=>{btn.textContent='⏎';btn.style.background=''},800)}
+  // Flash command bar border
+  const bar=$('cmd-bar');if(bar){bar.style.borderColor='var(--accent)';setTimeout(()=>bar.style.borderColor='',600)}
+  try{
+    const r=await fetch(`/api/chat/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})});
+    const d=await r.json();
+    if(d.target&&statusEl)statusEl.innerHTML='<span class="dot-pulse"></span> '+d.target+' 작업 중...';
+  }catch(e){
+    if(statusEl)statusEl.innerHTML='<span style="color:var(--red)">❌ 전송 실패</span>';
+  }
+  // Auto-hide after agent responds (SSE will clear it)
+  _sentTimeout=setTimeout(()=>{if(sentEl)sentEl.classList.remove('visible')},120000);
+}
+let _sentTimeout=null;
+function clearSentStatus(){
+  const el=$('cmd-sent');if(el)el.classList.remove('visible');
+  if(_sentTimeout){clearTimeout(_sentTimeout);_sentTimeout=null}
 }
 
 // ─── Approvals ───
@@ -822,7 +926,6 @@ function toggleDrawer(name){
   else if(name==='approvals'){title.textContent='🔔 결재';renderDrawerApprovals(body)}
   else if(name==='plan'){title.textContent='🗂️ 계획 트리';fetchPlanTasks()}
   else if(name==='files'){title.textContent='📂 자료';renderDrawerFiles(body)}
-  else if(name==='priorities'){title.textContent='⚡ 우선순위';renderDrawerPriorities(body)}
   $('drawer').classList.add('open');
 }
 function openDrawerWith(name,titleText,html){
@@ -864,53 +967,6 @@ function renderDrawerFiles(el){
   fetch(`/api/newspaper/${cur}`).then(r=>r.json()).then(d=>{
     if(d.newspaper)el.innerHTML+=`<div style="margin-top:12px;font-size:10px;font-weight:600;color:var(--dim);margin-bottom:4px">📊 리포트</div><div style="font-size:10px;color:var(--text);white-space:pre-wrap;line-height:1.5;background:var(--card);border-radius:6px;padding:8px">${_e(d.newspaper)}</div>`;
   }).catch(()=>{});
-}
-
-// ─── Priority Matrix (in drawer) ───
-async function renderDrawerPriorities(el){
-  if(!cur){el.innerHTML='<div style="color:var(--dim);text-align:center;padding:20px;font-size:11px">회사를 선택하세요</div>';return}
-  el.innerHTML='<div style="color:var(--dim);text-align:center;padding:20px;font-size:11px">로딩...</div>';
-  try{
-    const r=await fetch(`/api/priorities/${cur}`);const d=await r.json();
-    const cats=d.categories||[];
-    const matrix=d.matrix||{};
-    const co=cos.find(c=>c.id===cur);
-    const agents=(co&&co.agents)||[];
-    if(!agents.length){el.innerHTML='<div style="color:var(--dim);text-align:center;padding:20px;font-size:11px">에이전트 없음</div>';return}
-    const prioColor=p=>({1:'#ef4444',2:'#f97316',3:'#6b7280',4:'#3b82f6',5:'#6366f1',0:'#374151'}[p]||'#6b7280');
-    const prioLabel=p=>p===0?'-':p;
-    let h='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:10px">';
-    h+='<thead><tr><th style="padding:4px 6px;text-align:left;color:var(--dim);border-bottom:1px solid var(--border);font-size:9px;white-space:nowrap"></th>';
-    cats.forEach(c=>{h+=`<th style="padding:4px 3px;text-align:center;color:var(--dim);border-bottom:1px solid var(--border);font-size:9px;white-space:nowrap">${_e(c)}</th>`});
-    h+='</tr></thead><tbody>';
-    agents.forEach(a=>{
-      const aid=a.id;
-      const prios=matrix[aid]||{};
-      h+=`<tr><td style="padding:4px 6px;font-weight:600;color:var(--text);border-bottom:1px solid #1e293b;white-space:nowrap">${a.emoji||''} ${_e(a.name||aid.toUpperCase())}</td>`;
-      cats.forEach(cat=>{
-        const p=(prios[cat]!==undefined)?prios[cat]:3;
-        const bg=prioColor(p);
-        h+=`<td style="padding:2px;text-align:center;border-bottom:1px solid #1e293b">`;
-        h+=`<button onclick="cyclePriority('${aid}','${cat}',this)" data-p="${p}" style="width:28px;height:24px;border:none;border-radius:4px;background:${bg};color:white;font-weight:700;font-size:11px;cursor:pointer;transition:all .15s">${prioLabel(p)}</button>`;
-        h+=`</td>`;
-      });
-      h+='</tr>';
-    });
-    h+='</tbody></table></div>';
-    h+='<div style="margin-top:8px;font-size:8px;color:var(--dim);text-align:center">클릭하여 변경: 1(최우선) → 2 → 3 → 4 → 5 → 0(비활성) → 1</div>';
-    el.innerHTML=h;
-  }catch(e){el.innerHTML='<div style="color:var(--dim);font-size:10px">로드 실패</div>'}
-}
-async function cyclePriority(agentId,category,btn){
-  const cur_p=parseInt(btn.dataset.p);
-  const next=cur_p===0?1:(cur_p>=5?0:cur_p+1);
-  const prioColor=p=>({1:'#ef4444',2:'#f97316',3:'#6b7280',4:'#3b82f6',5:'#6366f1',0:'#374151'}[p]||'#6b7280');
-  btn.dataset.p=next;
-  btn.style.background=prioColor(next);
-  btn.textContent=next===0?'-':next;
-  try{
-    await fetch(`/api/priority-set/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_id:agentId,category:category,priority:next})});
-  }catch(e){toast('저장 실패')}
 }
 
 // ─── Plan Tree (in drawer) ───
@@ -976,10 +1032,54 @@ async function planDel(id){
 function openCreate(){$('create-modal').classList.add('show')}
 async function createCo(){
   const n=$('c-name').value.trim(),t=$('c-topic').value.trim();if(!n)return;
-  const r=await(await fetch('/api/companies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,topic:t,lang})})).json();
-  if(r.ok){toast('🏢 생성됨');$('create-modal').classList.remove('show');cur=r.company.id;load()}
+  // Disable button, show progress
+  const btn=document.querySelector('#create-modal .btn-primary');
+  if(btn){btn.disabled=true;btn.textContent='⏳ 에이전트 생성 중...'}
+  try{
+    const r=await(await fetch('/api/companies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,topic:t,lang})})).json();
+    if(r.ok){
+      $('create-modal').classList.remove('show');$('c-name').value='';$('c-topic').value='';
+      const agentCount=(r.company.agents||[]).length;
+      cur=r.company.id;load();
+      // Disable command bar while agents register
+      _setCmdBarLock(true,`⏳ ${agentCount}개 에이전트 등록 중... 잠시 기다려주세요`);
+      toast(`🏢 ${n} 생성됨 — ${agentCount}개 에이전트 등록 중...`);
+      _watchAgentReady(r.company.id,agentCount);
+    }else toast('❌ 생성 실패: '+(r.error||''));
+  }catch(e){toast('❌ 생성 오류')}
+  if(btn){btn.disabled=false;btn.textContent='생성'}
 }
-async function delCo(id,name){if(!confirm(`"${name}" 삭제?`))return;await fetch('/api/company/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});toast('삭제됨');cur=null;load()}
+function _watchAgentReady(cid,total){
+  let _interval=setInterval(async()=>{
+    try{
+      const c=await(await fetch(`/api/company/${cid}`)).json();
+      if(!c||!c.agents){clearInterval(_interval);return}
+      const ready=c.agents.filter(a=>a.status==='active').length;
+      const registering=c.agents.filter(a=>a.status==='registering');
+      if(ready>=total){
+        clearInterval(_interval);
+        toast(`✅ 모든 에이전트 준비 완료! 지시를 내리세요.`);
+        _setCmdBarLock(false);
+        renderFogMap();
+      }else{
+        const names=registering.map(a=>a.emoji+' '+a.name).join(', ');
+        toast(`⏳ ${ready}/${total} 준비 완료 — 등록 중: ${names}`);
+      }
+    }catch(e){clearInterval(_interval)}
+  },5000);
+  // Safety: stop after 3 minutes
+  setTimeout(()=>{clearInterval(_interval);_setCmdBarLock(false)},180000);
+}
+async function delCo(id,name){
+  if(!confirm(`"${name}" 삭제?`))return;
+  toast('🗑️ 삭제 중...');
+  try{
+    const r=await fetch('/api/company/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+    const d=await r.json();
+    if(d.ok){toast('✅ 삭제 완료');cur=null;load()}
+    else toast('❌ 삭제 실패');
+  }catch(e){toast('❌ 삭제 오류')}
+}
 function fp(n,r,e){$('a-name').value=n;$('a-role').value=r;$('a-emoji').value=e}
 async function openAgent(){
   const s=$('a-parent'),c=cos.find(x=>x.id===cur);s.innerHTML='<option value="">리더 직속</option>';
@@ -1052,8 +1152,13 @@ function connectSSE(){
     notify('✅ 작업 완료',(d.agent_name||d.agent_id)+' 작업 완료');
     delete thinking[d.cid+':'+d.agent_id];
     if(d.cid===cur){
+      // Update sent status to show completion
+      const statusEl=$('cmd-sent-status');
+      if(statusEl&&$('cmd-sent')?.classList.contains('visible')){
+        statusEl.innerHTML='<span style="color:var(--green)">✅ '+(d.agent_name||d.agent_id).toUpperCase()+' 완료</span>';
+        setTimeout(clearSentStatus,3000);
+      }
       renderFogMap();
-      // Refresh tasks & approvals
       extras();
       if(curDrawer==='tasks')renderDrawerTasks($('drawer-body'));
       if(curDrawer==='plan')fetchPlanTasks();
@@ -1075,6 +1180,8 @@ function connectSSE(){
     });
     lastLen=chat.length;
     renderFogMap();
+    // Refresh narrative on new messages
+    fetch(`/api/narrative/${cur}`).then(r=>r.json()).then(nd=>renderNarrative(nd.events||[])).catch(()=>{});
   }catch(e){}});
   es.onerror=()=>{es.close();sseTimer=setTimeout(connectSSE,3000)};
 }

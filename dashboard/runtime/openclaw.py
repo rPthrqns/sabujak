@@ -60,7 +60,10 @@ class OpenClawRuntime(AgentRuntime):
                 # Read file, find NEW assistant text (not seen before launch)
                 try:
                     lines = f.read_text(errors='replace').strip().split('\n')
-                    for line in reversed(lines):
+                    # Collect ALL new assistant texts after pre_id
+                    new_texts = []
+                    found_pre = False
+                    for line in lines:
                         if not line.strip():
                             continue
                         try:
@@ -70,17 +73,22 @@ class OpenClawRuntime(AgentRuntime):
                                 if msg.get('role') == 'assistant':
                                     eid = entry.get('id', '')
                                     if eid == pre_id:
-                                        break  # Reached pre-launch message, stop
+                                        found_pre = True
+                                        new_texts = []  # Reset — only count messages AFTER this
+                                        continue
                                     texts = [c.get('text', '') for c in msg.get('content', []) if c.get('type') == 'text']
                                     candidate = '\n'.join(texts).strip() if texts else ''
                                     if candidate and candidate != 'NO_REPLY' and len(candidate) > 5:
-                                        if len(candidate) > 80:
-                                            result = candidate  # Substantial response
-                                            break
-                                        elif not result:
-                                            result = candidate  # Short, keep polling for better
+                                        new_texts.append(candidate)
                         except _json.JSONDecodeError:
                             pass
+                    # Take the longest new response (best quality)
+                    if new_texts:
+                        best = max(new_texts, key=len)
+                        if len(best) > 80:
+                            result = best  # Substantial — return immediately
+                        elif not result:
+                            result = best  # Short — keep polling for better
                 except Exception:
                     pass
                 if result:

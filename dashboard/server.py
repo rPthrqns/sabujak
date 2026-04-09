@@ -48,7 +48,7 @@ AGENT_RUN_TIMEOUT = int(os.environ.get('AGENT_TIMEOUT', 180))
 AGENT_RETRY_TIMEOUT = int(os.environ.get('AGENT_RETRY_TIMEOUT', 120))
 AGENT_INIT_TIMEOUT = 30
 AGENT_POLL_INTERVAL = 3
-MAX_CONCURRENT_AGENTS = int(os.environ.get('MAX_CONCURRENT', 2))
+MAX_CONCURRENT_AGENTS = int(os.environ.get('MAX_CONCURRENT', 5))
 WATCHDOG_INTERVAL = 30
 WATCHDOG_STUCK_THRESHOLD = 90
 SSE_CLIENTS = []          # kept for backward compat reference; not used by FastAPI SSE
@@ -1919,6 +1919,7 @@ def generate_narrative(cid):
     unique_events.reverse()
 
     result = unique_events[-15:]
+    result.reverse()  # 최신순
     _narrative_cache[cid] = (result, cache_now)
     return result
 
@@ -2015,8 +2016,13 @@ def nudge_agent(cid, text, target):
     key = f"{cid}:{aid}"
 
     def _process(msg):
-        nonlocal session_id
+        nonlocal session_id, company
         print(f"[nudge] _process start: key={key} msg={msg[:50]}")
+        # Re-check company exists (may have been deleted while queued)
+        company = get_company(cid)
+        if not company:
+            print(f"[nudge] _process: {key} company deleted, aborting")
+            return
         with _AGENT_STATE_LOCK:
             if key in _AGENT_BUSY:
                 print(f"[nudge] _process: {key} already busy, returning")
@@ -2118,8 +2124,11 @@ def nudge_agent(cid, text, target):
         else:
             leader_name = get_leader_id(company).upper() if company else 'CEO'
             # Check if this agent has child agents (team lead detection)
-            child_agents = [a for a in (company.get('agents', []) if company else [])
-                           if a.get('parent_agent') == aid]
+            # For leader: treat all other agents as children (even if parent_agent is not set)
+            all_agents = company.get('agents', []) if company else []
+            child_agents = [a for a in all_agents if a.get('parent_agent') == aid]
+            if not child_agents and is_leader:
+                child_agents = [a for a in all_agents if a['id'] != aid]
             if child_agents:
                 # Team lead: can delegate to children
                 child_list = '\n'.join(f"- @{a['id'].upper()} ({a.get('role','')}) — 직접 @멘션으로 지시하세요" for a in child_agents)
@@ -2289,7 +2298,11 @@ def nudge_agent(cid, text, target):
                 is_prep = len(clean) < 150 and any(p in clean.lower() for p in prep_patterns)
                 has_command = bool(re.search(r'\[TASK_|\[APPROVAL:|\[CRON_|\[TASK_DONE', clean))
                 has_mention = bool(re.search(r'@[A-Za-z]', clean))
-                has_action = has_command or has_mention
+                # Leaders MUST delegate (@mention), not just add tasks
+                if is_leader:
+                    has_action = has_mention  # leader needs @mention regardless of commands
+                else:
+                    has_action = has_command or has_mention
                 if clean and (is_prep or (not has_action)):
                     print(f"[guardrail] {agent_id} response rejected ({len(clean)}ch cmd={has_command} mention={has_mention}), retrying...")
                     if is_leader:
@@ -2421,6 +2434,8 @@ def nudge_agent(cid, text, target):
                     if not is_escalation_response and company:
                         child_agents = [a for a in company.get('agents', [])
                                        if a.get('parent_agent') == aid]
+                        if not child_agents and is_leader:
+                            child_agents = [a for a in company.get('agents', []) if a['id'] != aid]
                         if child_agents and not has_agent_mention:
                             # Team lead responded without delegating — auto-nudge children
                             # Extract task context from the original message and response
@@ -3323,32 +3338,73 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         cid = body.get('id')
         company = get_company(cid)
         if not company: self._json({"ok": True}); return
-        # Collect agent IDs to delete in background (non-blocking)
         agent_ids = [a.get('agent_id', '') for a in company.get('agents', []) if a.get('agent_id')]
-        def _bg_delete_agents():
+        # Clear busy state immediately
+        with _AGENT_STATE_LOCK:
+            for k in [k for k in _AGENT_BUSY if k.startswith(f"{cid}:")]:
+                _AGENT_BUSY.discard(k)
+        for k in [k for k in _ESCALATION_COUNTS if k.startswith(f"{cid}:")]:
+            _ESCALATION_COUNTS.pop(k, None)
+        # Broadcast deletion immediately so UI updates
+        sse_broadcast('company_update', {"id": cid, "deleted": True})
+        # Return ok immediately, do everything else in background
+        self._json({"ok": True})
+        def _bg_full_delete():
+            # Kill any running openclaw processes for this company
+            import signal
+            for aid in agent_ids:
+                try:
+                    # Kill any running processes
+                    result = subprocess.run(['pgrep', '-f', aid], capture_output=True, text=True, timeout=5)
+                    for pid in result.stdout.strip().split('\n'):
+                        if pid.strip():
+                            try: os.kill(int(pid.strip()), signal.SIGTERM)
+                            except: pass
+                except: pass
+            # Delete agents from openclaw (with retry)
+            failed = []
             for aid in agent_ids:
                 try:
                     ok = RUNTIME.delete(aid)
-                    print(f"[delete] agent {aid} {'removed' if ok else 'delete failed'}")
+                    if ok:
+                        print(f"[delete] agent {aid} removed")
+                    else:
+                        failed.append(aid)
+                        print(f"[delete] agent {aid} failed, queued for retry")
                 except Exception as e:
-                    print(f"[delete] agent {aid} error: {e}")
-        threading.Thread(target=_bg_delete_agents, daemon=True).start()
-        # Delete from DB (also removes company.db and directory)
-        db_delete_company(cid)
-        # Remove legacy JSON state files
-        for suffix in ['.json', '.json.bak', '-queue.json', '-queue.json.bak']:
-            f = DATA / f"{cid}{suffix}"
-            if f.exists():
-                try: f.unlink()
-                except OSError: pass
-        # Update legacy companies.json
-        try:
-            companies = load_json(COMPANIES_FILE)
-            companies = [c for c in companies if c["id"] != cid]
-            save_json(COMPANIES_FILE, companies)
-        except Exception: pass
-        sse_broadcast('company_update', {"id": cid, "deleted": True})
-        self._json({"ok": True})
+                    failed.append(aid)
+                    print(f"[delete] agent {aid} error: {e}, queued for retry")
+            # Retry failed deletions (up to 2 more attempts with delay)
+            for attempt in range(2):
+                if not failed: break
+                time.sleep(5)
+                still_failed = []
+                for aid in failed:
+                    try:
+                        ok = RUNTIME.delete(aid)
+                        if ok:
+                            print(f"[delete] agent {aid} removed (retry {attempt+1})")
+                        else:
+                            still_failed.append(aid)
+                    except:
+                        still_failed.append(aid)
+                failed = still_failed
+            if failed:
+                print(f"[delete] agents still remaining after retries: {failed}")
+            # Delete DB and files
+            db_delete_company(cid)
+            for suffix in ['.json', '.json.bak', '-queue.json', '-queue.json.bak']:
+                f = DATA / f"{cid}{suffix}"
+                if f.exists():
+                    try: f.unlink()
+                    except OSError: pass
+            try:
+                companies = load_json(COMPANIES_FILE)
+                companies = [c for c in companies if c["id"] != cid]
+                save_json(COMPANIES_FILE, companies)
+            except Exception: pass
+            print(f"[delete] company {cid} fully deleted")
+        threading.Thread(target=_bg_full_delete, daemon=True).start()
 
     # ─── Agent Add Handler ───
     def _handle_agent_add(self, path, body):
