@@ -518,6 +518,66 @@ function selectAgent(aid){
   if(a)directMsg(a.name);
 }
 
+// ─── Markdown → HTML ───
+function _md(raw){
+  if(!raw)return'';
+  // Escape HTML first
+  let t=_e(raw);
+  // Code blocks (``` ... ```)
+  t=t.replace(/```(\w*)\n([\s\S]*?)```/g,(m,lang,code)=>`<pre style="background:#0f172a;padding:8px 10px;border-radius:6px;overflow-x:auto;font-size:10px;margin:4px 0"><code>${code.trim()}</code></pre>`);
+  // Inline code
+  t=t.replace(/`([^`]+)`/g,'<code style="background:#0f172a;padding:1px 4px;border-radius:3px;font-size:10px">$1</code>');
+  // Headings (## → h4, ### → h5)
+  t=t.replace(/^### (.+)$/gm,'<div style="font-size:11px;font-weight:700;color:#94a3b8;margin:6px 0 2px">$1</div>');
+  t=t.replace(/^## (.+)$/gm,'<div style="font-size:12px;font-weight:700;color:#f1f5f9;margin:8px 0 3px">$1</div>');
+  t=t.replace(/^# (.+)$/gm,'<div style="font-size:13px;font-weight:800;color:#f1f5f9;margin:8px 0 4px">$1</div>');
+  // Bold & italic
+  t=t.replace(/\*\*\*(.+?)\*\*\*/g,'<strong><em>$1</em></strong>');
+  t=t.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  t=t.replace(/\*(.+?)\*/g,'<em>$1</em>');
+  // Strikethrough
+  t=t.replace(/~~(.+?)~~/g,'<s style="color:var(--dim)">$1</s>');
+  // Links
+  t=t.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank" style="color:#60a5fa;text-decoration:underline">$1</a>');
+  // Images (![alt](url))
+  t=t.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,'<img src="$2" alt="$1" style="max-width:200px;border-radius:6px;margin:4px 0;cursor:pointer" onclick="window.open(\'$2\')">');
+  // Image URLs in text
+  t=t.replace(/(https?:\/\/\S+\.(png|jpg|jpeg|gif|webp))/gi,'<img src="$1" style="max-width:200px;border-radius:6px;margin:4px 0;cursor:pointer" onclick="window.open(\'$1\')">');
+  // Unordered list items
+  t=t.replace(/^[-•]\s+(.+)$/gm,'<div style="padding-left:12px">• $1</div>');
+  // Ordered list items
+  t=t.replace(/^(\d+)[.)]\s+(.+)$/gm,'<div style="padding-left:12px">$1. $2</div>');
+  // Blockquote
+  t=t.replace(/^&gt;\s?(.+)$/gm,'<div style="border-left:3px solid #374151;padding-left:8px;color:#94a3b8;margin:2px 0">$1</div>');
+  // Horizontal rule
+  t=t.replace(/^---$/gm,'<hr style="border:none;border-top:1px solid #1e3a5f;margin:6px 0">');
+  // Simple table (| col | col |)
+  t=t.replace(/((?:^\|.+\|$\n?)+)/gm,(match)=>{
+    const rows=match.trim().split('\n').filter(r=>r.trim());
+    if(rows.length<2)return match;
+    let html='<table style="border-collapse:collapse;font-size:10px;margin:4px 0;width:100%">';
+    rows.forEach((row,i)=>{
+      const cells=row.split('|').filter(c=>c.trim());
+      if(cells.every(c=>/^[-:]+$/.test(c.trim())))return; // separator row
+      const tag=i===0?'th':'td';
+      const style=i===0?'font-weight:600;color:#94a3b8;border-bottom:1px solid #334155;padding:3px 6px':'color:var(--text);padding:3px 6px;border-bottom:1px solid #1e293b';
+      html+='<tr>'+cells.map(c=>`<${tag} style="${style}">${c.trim()}</${tag}>`).join('')+'</tr>';
+    });
+    html+='</table>';
+    return html;
+  });
+  // @mentions
+  t=t.replace(/@(\w+)/g,'<span style="color:#a5b4fc;font-weight:600">@$1</span>');
+  // Line breaks (preserve \n as <br> for non-block content)
+  t=t.replace(/\n/g,'<br>');
+  // Clean up excessive <br> after block elements
+  t=t.replace(/(<\/div>)<br>/g,'$1');
+  t=t.replace(/(<\/pre>)<br>/g,'$1');
+  t=t.replace(/(<\/table>)<br>/g,'$1');
+  t=t.replace(/(<hr[^>]*>)<br>/g,'$1');
+  return t;
+}
+
 // ─── Chat ───
 function renderChat(){
   const el=$('chat-area');if(!el)return;
@@ -533,13 +593,7 @@ function renderChat(){
     const emoji=isUser?'👤':(agent?agent.emoji||'🤖':'🤖');
     const name=isUser?'나':(m.from||'시스템');
     const cls=isUser?'cm-user':'cm-agent';
-    let textHtml=_e(m.text||'');
-    // Render markdown-lite
-    textHtml=textHtml.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
-    textHtml=textHtml.replace(/`([^`]+)`/g,'<code style="background:#0f172a;padding:1px 4px;border-radius:3px">$1</code>');
-    textHtml=textHtml.replace(/@(\w+)/g,'<span style="color:#a5b4fc;font-weight:600">@$1</span>');
-    // Detect image URLs in text
-    textHtml=textHtml.replace(/(https?:\/\/\S+\.(png|jpg|jpeg|gif|webp))/gi,'<img src="$1" onclick="window.open(\'$1\')">');
+    let textHtml=_md(m.text||'');
     return`<div class="chat-msg ${cls}">
       <span class="cm-avatar">${emoji}</span>
       <div class="cm-body">
