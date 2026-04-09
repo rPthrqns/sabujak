@@ -85,13 +85,26 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .sp-msg-btn{width:100%;background:var(--accent);color:white;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:600;cursor:pointer;margin-top:8px}
 .sp-msg-btn:hover{background:#2563eb}
 
-/* Task overview (below icon grid) */
-.task-area{flex:1;overflow-y:auto;border-top:1px solid var(--border);padding:12px 16px}
+/* Chat area (below icon grid) */
+.chat-area{flex:1;overflow-y:auto;border-top:1px solid var(--border);padding:8px 12px;display:flex;flex-direction:column;gap:6px}
+.chat-msg{display:flex;gap:8px;padding:6px;border-radius:8px;font-size:11px;line-height:1.6;max-width:85%}
+.chat-msg.cm-user{align-self:flex-end;background:rgba(59,130,246,.15);flex-direction:row-reverse}
+.chat-msg.cm-agent{align-self:flex-start;background:var(--card)}
+.cm-avatar{font-size:16px;flex-shrink:0;width:24px;text-align:center}
+.cm-body{min-width:0}
+.cm-name{font-size:9px;font-weight:600;color:var(--dim);margin-bottom:2px}
+.cm-text{color:var(--text);white-space:pre-wrap;word-break:break-word}
+.cm-text img{max-width:200px;border-radius:6px;margin-top:4px;cursor:pointer}
+.cm-time{font-size:8px;color:var(--dim);margin-top:2px}
+.chat-empty{text-align:center;color:var(--dim);font-size:11px;padding:20px;margin:auto}
+
+/* Section helpers */
 .section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
 .section-title{font-size:11px;font-weight:700;color:var(--dim);display:flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:.5px}
 .section-count{font-size:9px;color:var(--dim);background:var(--card);padding:1px 6px;border-radius:8px}
-.task-list{display:flex;flex-direction:column;gap:4px}
-.task-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:var(--card);font-size:11px;cursor:pointer;transition:background .1s}
+
+/* Task rows (used in drawer) */
+.task-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:var(--card);font-size:11px;cursor:pointer;transition:background .1s;margin-bottom:3px}
 .task-row:hover{background:#253349}
 .task-row .tr-icon{font-size:12px;flex-shrink:0}
 .task-row .tr-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
@@ -136,32 +149,69 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .drawer-head button{background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px}
 .drawer-body{flex:1;overflow-y:auto;padding:8px}
 
-/* Plan Tree */
-.plan-tree{font-family:'SF Mono',Monaco,'Cascadia Code',monospace;font-size:11px;line-height:1.5}
-.plan-node{position:relative;padding-left:20px}
-.plan-node::before{content:'';position:absolute;left:7px;top:0;bottom:0;width:1px;background:#1e3a5f}
-.plan-node:last-child::before{height:12px}
-.plan-node::after{content:'';position:absolute;left:7px;top:12px;width:10px;height:1px;background:#1e3a5f}
-.plan-root>.plan-node::before,.plan-root>.plan-node::after{display:none}
-.plan-root>.plan-node{padding-left:0}
-.plan-row{display:flex;align-items:center;gap:6px;padding:2px 4px;border-radius:4px;cursor:pointer;transition:background .1s}
-.plan-row:hover{background:rgba(59,130,246,.08)}
-.plan-chk{width:16px;height:16px;border:2px solid #334155;border-radius:4px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;flex-shrink:0;font-size:10px}
-.plan-chk.done{background:#064e3b;border-color:#22c55e;color:#4ade80}
-.plan-chk.progress{background:#1c1917;border-color:#fbbf24;color:#fbbf24}
-.plan-chk:hover{border-color:var(--accent)}
-.plan-label{flex:1;color:#e2e8f0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.plan-label.done{color:#64748b;text-decoration:line-through}
-.plan-label.progress{color:#fbbf24}
-.plan-agent{font-size:9px;color:#475569;background:#0f172a;padding:1px 5px;border-radius:3px;flex-shrink:0}
-.plan-acts{display:none;gap:2px;flex-shrink:0}
-.plan-row:hover .plan-acts{display:flex}
-.plan-acts button{background:none;border:none;color:#475569;cursor:pointer;font-size:10px;padding:1px 3px;border-radius:2px}
-.plan-acts button:hover{color:var(--text);background:#1e293b}
-.plan-pbar{height:3px;background:#0f172a;border-radius:2px;margin:2px 0 4px 22px;overflow:hidden}
-.plan-pfill{height:100%;background:linear-gradient(90deg,#3b82f6,#22c55e);border-radius:2px;transition:width .4s}
-.plan-add-inline{display:flex;gap:5px;align-items:center;padding:2px 4px;margin:2px 0 2px 22px}
-.plan-add-inline input{flex:1;background:#0f172a;border:1px solid #1e3a5f;border-radius:4px;padding:3px 8px;color:var(--text);font-size:11px;outline:none;font-family:inherit}
+/* Plan Overlay (full-screen panel) */
+.plan-overlay{display:none;position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)}
+.plan-overlay.show{display:flex;align-items:center;justify-content:center}
+.plan-panel{background:var(--panel);border:1px solid var(--border);border-radius:16px;width:90%;max-width:720px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 16px 64px rgba(0,0,0,.5)}
+.plan-head{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border);flex-shrink:0}
+.plan-head h2{font-size:15px;font-weight:700;color:#f1f5f9;flex:1}
+.plan-head-close{background:none;border:none;color:var(--dim);cursor:pointer;font-size:18px}
+.plan-head-close:hover{color:var(--text)}
+
+/* Plan summary stats */
+.plan-summary{display:flex;gap:12px;padding:12px 20px;border-bottom:1px solid rgba(30,58,95,.3);flex-shrink:0;flex-wrap:wrap}
+.ps-stat{display:flex;flex-direction:column;align-items:center;padding:8px 14px;border-radius:10px;background:var(--card);min-width:70px}
+.ps-num{font-size:20px;font-weight:800;line-height:1}
+.ps-label{font-size:8px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-top:3px}
+.ps-ring{width:64px;height:64px;position:relative;display:flex;align-items:center;justify-content:center}
+.ps-ring svg{position:absolute;inset:0;transform:rotate(-90deg)}
+.ps-ring-pct{font-size:14px;font-weight:800;color:#f1f5f9}
+
+/* Agent progress bars */
+.plan-agents{display:flex;gap:8px;padding:10px 20px;border-bottom:1px solid rgba(30,58,95,.3);flex-shrink:0;overflow-x:auto}
+.pa-bar{flex:1;min-width:80px;max-width:160px}
+.pa-name{font-size:9px;color:var(--dim);margin-bottom:3px;display:flex;align-items:center;gap:4px}
+.pa-track{height:6px;background:#0f172a;border-radius:3px;overflow:hidden}
+.pa-fill{height:100%;border-radius:3px;transition:width .3s}
+
+/* Plan body */
+.plan-body{flex:1;overflow-y:auto;padding:16px 20px}
+.plan-add-top{display:flex;gap:6px;margin-bottom:12px}
+.plan-add-top input{flex:1;background:var(--card);border:1px solid #374151;border-radius:8px;padding:6px 12px;color:var(--text);font-size:12px;outline:none}
+.plan-add-top input:focus{border-color:var(--accent)}
+.plan-add-top button{background:var(--accent);color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer}
+
+/* Plan nodes (card style) */
+.pn{margin-bottom:2px}
+.pn-card{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;cursor:pointer;transition:all .15s;border:1px solid transparent}
+.pn-card:hover{background:rgba(59,130,246,.06);border-color:rgba(59,130,246,.15)}
+.pn-toggle{width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--dim);cursor:pointer;flex-shrink:0;border-radius:4px;transition:transform .2s}
+.pn-toggle:hover{background:var(--card)}
+.pn-toggle.rotated{transform:rotate(90deg)}
+.pn-toggle.empty{visibility:hidden}
+.pn-chk{width:20px;height:20px;border:2px solid #374151;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;font-size:11px;transition:all .15s}
+.pn-chk.c-done{background:#064e3b;border-color:#22c55e;color:#4ade80}
+.pn-chk.c-progress{background:#1c1917;border-color:#fbbf24;color:#fbbf24}
+.pn-chk.c-blocked{background:#7f1d1d;border-color:#ef4444;color:#fca5a5}
+.pn-chk:hover{transform:scale(1.1);border-color:var(--accent)}
+.pn-title{flex:1;font-size:12px;color:#e2e8f0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pn-title.t-done{color:#64748b;text-decoration:line-through}
+.pn-title.t-progress{color:#fbbf24}
+.pn-agent{font-size:9px;color:#94a3b8;background:#0f172a;padding:2px 6px;border-radius:4px;flex-shrink:0;display:flex;align-items:center;gap:3px}
+.pn-acts{display:none;gap:3px;flex-shrink:0}
+.pn-card:hover .pn-acts{display:flex}
+.pn-acts button{background:none;border:1px solid #374151;color:var(--dim);cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;transition:all .1s}
+.pn-acts button:hover{color:var(--text);border-color:var(--accent);background:rgba(59,130,246,.1)}
+.pn-bar{height:3px;background:#0f172a;border-radius:2px;margin:0 12px 4px 46px;overflow:hidden}
+.pn-bar-fill{height:100%;border-radius:2px;transition:width .3s}
+.pn-kids{padding-left:28px;border-left:2px solid rgba(30,58,95,.3);margin-left:20px}
+.pn-add{display:flex;gap:6px;padding:4px 0 4px 46px}
+.pn-add input{flex:1;background:var(--card);border:1px solid #374151;border-radius:6px;padding:4px 10px;color:var(--text);font-size:11px;outline:none}
+.pn-add select{background:var(--card);border:1px solid #374151;border-radius:6px;padding:2px 6px;color:var(--text);font-size:10px;max-width:90px}
+.pn-add button{border:none;border-radius:6px;padding:2px 10px;font-size:11px;cursor:pointer}
+
+/* Legacy plan tree styles for drawer fallback */
+.plan-tree{font-size:11px;line-height:1.5}
 
 /* Drawer items */
 .task-item{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:6px;margin-bottom:3px;font-size:10px;background:var(--card);border-left:3px solid var(--dim)}
@@ -245,14 +295,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 
 <!-- Main Dashboard -->
 <div class="dashboard" id="dashboard" style="display:none">
-  <!-- Left: icons + tasks -->
+  <!-- Left: icons + chat -->
   <div class="dash-left">
     <div class="icon-grid" id="icon-grid"></div>
-    <div class="task-area" id="task-area">
-      <div class="section-head">
-        <span class="section-title">작업 현황 <span class="section-count" id="task-count">0</span></span>
-      </div>
-      <div class="task-list" id="task-list"></div>
+    <div class="chat-area" id="chat-area">
+      <div class="chat-empty">에이전트에게 지시하면 대화가 여기에 표시됩니다</div>
     </div>
   </div>
   <!-- Right: character status panel -->
@@ -267,6 +314,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 <div class="bottom-bar" id="bottom-bar" style="display:none">
   <div class="cmd-bar" id="cmd-bar">
     <div class="cmd-normal" id="cmd-normal">
+      <input type="file" id="file-input" style="display:none" onchange="uploadFile(this)" accept="image/*,.pdf,.md,.txt,.json,.csv,.zip">
+      <button onclick="$('file-input').click()" style="background:var(--card);border:1px solid #374151;border-radius:10px;padding:8px 12px;cursor:pointer;font-size:12px;color:var(--dim)" title="파일 첨부">📎</button>
       <input class="cmd-input" id="cmd-input" placeholder="@에이전트 지시사항 입력..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}">
       <button class="cmd-send" id="cmd-send-btn" onclick="send()">⏎</button>
     </div>
@@ -282,11 +331,24 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   </div>
 </div>
 
+<!-- Plan Overlay -->
+<div class="plan-overlay" id="plan-overlay" onclick="if(event.target===this)closePlan()">
+  <div class="plan-panel">
+    <div class="plan-head">
+      <h2>🗂️ 작업 계획</h2>
+      <button class="plan-head-close" onclick="closePlan()">✕</button>
+    </div>
+    <div class="plan-summary" id="plan-summary"></div>
+    <div class="plan-agents" id="plan-agents"></div>
+    <div class="plan-body" id="plan-body"></div>
+  </div>
+</div>
+
 <!-- Side drawer toggle buttons -->
 <div class="drawer-toggle" id="drawer-btns" style="display:none">
   <button onclick="toggleDrawer('tasks')" id="dt-tasks" title="작업">📋</button>
   <button onclick="toggleDrawer('approvals')" id="dt-approvals" title="결재" style="position:relative">🔔<span class="badge" id="apr-badge" style="display:none">0</span></button>
-  <button onclick="toggleDrawer('plan')" id="dt-plan" title="계획">🗂️</button>
+  <button onclick="openPlan()" id="dt-plan" title="계획">🗂️</button>
   <button onclick="toggleDrawer('files')" id="dt-files" title="자료">📂</button>
 </div>
 
@@ -420,17 +482,22 @@ async function load(){
 function renderTabs(){$('tabs').innerHTML=cos.map(c=>`<div class="tab ${c.id===cur?'active':''}" onclick="sel('${c.id}')">${_e(c.name)}<span class="x" onclick="event.stopPropagation();delCo('${c.id}','${_e(c.name)}')">✕</span></div>`).join('')}
 async function sel(id){cur=id;lastLen=0;selectedAgent=null;Object.keys(agentLog).forEach(k=>delete agentLog[k]);renderTabs();await refresh()}
 
+let chatMessages=[];
 async function refresh(){
   if(!cur)return;
   const c=await(await fetch(`/api/company/${cur}`)).json();
-  (c.chat||[]).forEach(m=>{
+  // Update cos array with latest company data (agents, etc.)
+  const idx=cos.findIndex(x=>x.id===cur);
+  if(idx>=0)cos[idx]=c;
+  chatMessages=c.chat||[];
+  chatMessages.forEach(m=>{
     if(m.type==='agent'&&m.from){
       const ag=(c.agents||[]).find(a=>a.name===m.from);
       if(ag)pushSpeech(ag.id,m.text||'',m.from,ag.emoji||'🤖',m.time||'')
     }
   });
-  lastLen=(c.chat||[]).length;
-  renderIconGrid();renderStatusPanel();extras();
+  lastLen=chatMessages.length;
+  renderIconGrid();renderChat();renderStatusPanel();extras();
 }
 
 function pushSpeech(aid,text,name,emoji,time){
@@ -447,7 +514,7 @@ async function extras(){
   if(!cur)return;
   try{const[b,c,a]=await Promise.all([fetch(`/api/board-tasks/${cur}`),fetch(`/api/costs/${cur}`),fetch(`/api/approvals/${cur}?status=pending`)]);
     tasks=await b.json();costs=await c.json();approvals=await a.json();
-    renderBanner();renderStats();updateAprBadge();renderTaskList();renderStatusPanel()}catch(e){}
+    renderBanner();renderStats();updateAprBadge();renderStatusPanel()}catch(e){}
 }
 
 // ─── Agent Icon Grid ───
@@ -550,30 +617,63 @@ function renderStatusPanel(){
   panel.innerHTML=h;
 }
 
-// ─── Task List ───
-function renderTaskList(){
-  const el=$('task-list');if(!el)return;
-  $('task-count').textContent=(tasks||[]).length;
-  if(!tasks||!tasks.length){el.innerHTML='<div style="color:var(--dim);font-size:10px;padding:8px">작업 없음</div>';return}
+// ─── Chat ───
+function renderChat(){
+  const el=$('chat-area');if(!el)return;
+  if(!chatMessages.length){el.innerHTML='<div class="chat-empty">에이전트에게 지시하면 대화가 여기에 표시됩니다</div>';return}
   const c=cos.find(x=>x.id===cur);
   const agentMap={};
-  (c?.agents||[]).forEach(a=>{agentMap[a.id]=a});
-  const order={'진행중':0,'대기':1,'완료':2};
-  const sorted=[...tasks].sort((a,b)=>(order[a.status]??1)-(order[b.status]??1));
-  el.innerHTML=sorted.map(t=>{
-    const icon=t.status==='완료'?'✅':t.status==='진행중'?'🔄':'⬜';
-    const cls=t.status==='완료'?'tr-done':'';
-    const agent=agentMap[t.agent_id];
-    const agentLabel=agent?`${agent.emoji||''} ${agent.name}`:'';
-    const blocked=(approvals||[]).some(a=>a.status==='pending'&&(a.task_id===t.id||a.title===t.title));
-    const stColor=blocked?'background:#7f1d1d;color:#fca5a5':t.status==='진행중'?'background:rgba(59,130,246,.2);color:#60a5fa':t.status==='완료'?'background:rgba(0,255,136,.1);color:#00ff88':'background:var(--card);color:var(--dim)';
-    return`<div class="task-row ${cls}" onclick="showTaskDetail('${t.id}')">
-      <span class="tr-icon">${blocked?'⚠️':icon}</span>
-      <span class="tr-title">${_e(t.title)}</span>
-      <span class="tr-agent">${_e(agentLabel)}</span>
-      <span class="tr-status" style="${stColor}">${blocked?'차단':_e(t.status||'대기')}</span>
+  (c?.agents||[]).forEach(a=>{agentMap[a.name]=a});
+  // Show last 30 messages
+  const msgs=chatMessages.slice(-30);
+  el.innerHTML=msgs.map(m=>{
+    const isUser=m.type==='user'||m.type==='master';
+    const agent=m.from?agentMap[m.from]:null;
+    const emoji=isUser?'👤':(agent?agent.emoji||'🤖':'🤖');
+    const name=isUser?'나':(m.from||'시스템');
+    const cls=isUser?'cm-user':'cm-agent';
+    let textHtml=_e(m.text||'');
+    // Render markdown-lite
+    textHtml=textHtml.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+    textHtml=textHtml.replace(/`([^`]+)`/g,'<code style="background:#0f172a;padding:1px 4px;border-radius:3px">$1</code>');
+    textHtml=textHtml.replace(/@(\w+)/g,'<span style="color:#a5b4fc;font-weight:600">@$1</span>');
+    // Detect image URLs in text
+    textHtml=textHtml.replace(/(https?:\/\/\S+\.(png|jpg|jpeg|gif|webp))/gi,'<img src="$1" onclick="window.open(\'$1\')">');
+    return`<div class="chat-msg ${cls}">
+      <span class="cm-avatar">${emoji}</span>
+      <div class="cm-body">
+        <div class="cm-name">${_e(name)}</div>
+        <div class="cm-text">${textHtml}</div>
+        <div class="cm-time">${m.time||''}</div>
+      </div>
     </div>`;
   }).join('');
+  // Auto-scroll to bottom
+  el.scrollTop=el.scrollHeight;
+}
+
+// ─── File Upload ───
+async function uploadFile(input){
+  if(!input.files.length||!cur)return;
+  const file=input.files[0];
+  const formData=new FormData();
+  formData.append('file',file);
+  toast(`📎 ${file.name} 업로드 중...`);
+  try{
+    const r=await fetch(`/api/upload/${cur}`,{method:'POST',body:formData});
+    const d=await r.json();
+    if(d.ok){
+      toast(`✅ ${file.name} 업로드 완료`);
+      // Send chat message with file reference
+      const isImage=/\.(png|jpg|jpeg|gif|webp)$/i.test(file.name);
+      const msg=isImage
+        ?`[파일 첨부] ${file.name}\n이미지: /api/file/${cur}/${d.path}`
+        :`[파일 첨부] ${file.name} (${(file.size/1024).toFixed(1)}KB)`;
+      await fetch(`/api/chat/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:msg})});
+      refresh();
+    }else toast('❌ 업로드 실패');
+  }catch(e){toast('❌ 업로드 오류')}
+  input.value='';
 }
 
 function showTaskDetail(taskId){
@@ -609,8 +709,10 @@ function _setCmdBarLock(locked,msg){
 async function send(){
   const i=$('cmd-input'),t=i.value.trim();if(!t||!cur)return;
   i.value='';
-  try{await fetch(`/api/chat/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})});
-    toast('📤 전송됨')}catch(e){toast('❌ 전송 실패')}
+  // Immediately show user message in chat
+  chatMessages.push({type:'user',text:t,time:now(),from:''});
+  renderChat();
+  try{await fetch(`/api/chat/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})})}catch(e){toast('❌ 전송 실패')}
 }
 
 // ─── Approvals ───
@@ -682,7 +784,7 @@ function toggleDrawer(name){
   dl.style.display=name==='files'?'':'none';
   if(name==='tasks'){title.textContent='📋 작업';renderDrawerTasks(body)}
   else if(name==='approvals'){title.textContent='🔔 결재';renderDrawerApprovals(body)}
-  else if(name==='plan'){title.textContent='🗂️ 계획 트리';fetchPlanTasks()}
+  else if(name==='plan'){openPlan();return}
   else if(name==='files'){title.textContent='📂 자료';renderDrawerFiles(body)}
   $('drawer').classList.add('open');
 }
@@ -719,71 +821,251 @@ function renderDrawerFiles(el){
     if(!files.length){el.innerHTML='<div style="color:var(--dim);text-align:center;padding:20px;font-size:11px">결과물 없음</div>';return}
     el.innerHTML=files.slice(0,30).map(f=>{
       const ext=f.path.split('.').pop().toLowerCase();
-      const icon=ext==='md'?'📝':ext==='png'?'🖼️':ext==='json'?'📋':'📄';
-      return`<div class="file-item" onclick="window.open('/api/file/${cur}/${f.path}','_blank')"><span>${icon}</span><span style="flex:1;color:#60a5fa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_e(f.path)}</span><span style="color:var(--dim);font-size:8px">${f.modified||''}</span></div>`}).join('');
+      const isImg=['png','jpg','jpeg','gif','webp','svg'].includes(ext);
+      const icon=isImg?'🖼️':ext==='md'?'📝':ext==='json'?'📋':'📄';
+      const url=`/api/file/${cur}/${f.path}`;
+      let preview='';
+      if(isImg)preview=`<img src="${url}" style="max-width:100%;max-height:120px;border-radius:4px;margin-top:4px;display:block;cursor:pointer" onclick="event.stopPropagation();window.open('${url}','_blank')">`;
+      return`<div class="file-item" style="flex-direction:column;align-items:flex-start" onclick="window.open('${url}','_blank')">
+        <div style="display:flex;align-items:center;gap:6px;width:100%"><span>${icon}</span><span style="flex:1;color:#60a5fa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_e(f.path)}</span><span style="color:var(--dim);font-size:8px">${f.modified||''}</span></div>
+        ${preview}
+      </div>`}).join('');
   }).catch(()=>{el.innerHTML='<div style="color:var(--dim);font-size:10px">로드 실패</div>'});
   fetch(`/api/newspaper/${cur}`).then(r=>r.json()).then(d=>{
     if(d.newspaper)el.innerHTML+=`<div style="margin-top:12px;font-size:10px;font-weight:600;color:var(--dim);margin-bottom:4px">📊 리포트</div><div style="font-size:10px;color:var(--text);white-space:pre-wrap;line-height:1.5;background:var(--card);border-radius:6px;padding:8px">${_e(d.newspaper)}</div>`;
   }).catch(()=>{});
 }
 
-// ─── Plan Tree ───
-let _planTasks=[],_planAddPar=null;
+// ─── Plan (Visual Overlay) ───
+let _planTasks=[],_planAddPar=null,_planCollapsed=new Set(),_planUserExpanded=new Set();
+
+// Category detection (reused from old fog map logic)
+const PLAN_CAT={
+  dev:{label:'개발 Development',icon:'💻',color:'#3b82f6',kw:['코딩','개발','API','서버','프론트','백엔드','DB','배포','frontend','backend','deploy','server','database','coding','api','버그','테스트','구현']},
+  plan:{label:'기획 Planning',icon:'📊',color:'#8b5cf6',kw:['기획','전략','분석','리서치','조사','계획','planning','strategy','research','analysis','보고','정리']},
+  market:{label:'마케팅 Marketing',icon:'📢',color:'#22c55e',kw:['마케팅','홍보','SNS','광고','SEO','콘텐츠','브랜딩','marketing','branding','content','ads','seo','고객','캠페인']},
+  design:{label:'디자인 Design',icon:'🎨',color:'#ec4899',kw:['디자인','UI','UX','시안','로고','이미지','design','logo','wireframe','mockup','프로토']},
+  ops:{label:'운영 Operations',icon:'⚙️',color:'#f59e0b',kw:['운영','인사','재무','예산','비용','법률','채용','HR','finance','budget','legal','policy','급여']},
+};
+function _detectCat(title){
+  if(!title)return'plan';
+  const t=title.toLowerCase();
+  for(const[cat,m]of Object.entries(PLAN_CAT)){
+    if(m.kw.some(k=>t.includes(k.toLowerCase())))return cat;
+  }
+  return'plan';
+}
+
+function openPlan(){
+  $('plan-overlay').classList.add('show');
+  fetchPlanTasks();
+}
+function closePlan(){$('plan-overlay').classList.remove('show')}
+
 async function fetchPlanTasks(){
   if(!cur)return;
-  try{const r=await fetch(`/api/plan-tasks/${cur}`);_planTasks=await r.json();renderPlanTree()}catch(e){}
+  try{const r=await fetch(`/api/plan-tasks/${cur}`);_planTasks=await r.json();renderPlan()}catch(e){}
 }
-function renderPlanTree(){
-  const el=$('drawer-body');if(!el||curDrawer!=='plan')return;
-  if(!_planTasks.length){el.innerHTML='<div style="text-align:center;padding:20px;color:var(--dim);font-size:10px">📋 에이전트가 작업하면 자동 생성됩니다<br><span style="font-size:9px;cursor:pointer;color:var(--accent)" onclick="planAddStart(null)">＋ 직접 추가</span></div>';return}
-  const roots=_planTasks.filter(t=>!t.parent_id);
+
+function renderPlan(){
   const co=cos.find(c=>c.id===cur);
-  let h='<div class="plan-tree"><div class="plan-root">';
-  h+=_planAddInline(null);
-  roots.forEach(t=>{h+=_planNode(t,co)});
-  h+='</div></div>';
-  el.innerHTML=h;
+  const agents=(co?.agents||[]);
+
+  // Merge board tasks into view (as virtual plan items under categories)
+  const boardItems=(tasks||[]).map(t=>({
+    id:'board-'+t.id, title:t.title, agent_id:t.agent_id,
+    status:t.status==='완료'?'done':t.status==='진행중'?'in-progress':'todo',
+    parent_id:null, _board:true, _boardId:t.id, result:t.result||t.detail||''
+  }));
+
+  // Combined: plan tasks + board tasks (dedup by title)
+  const planTitles=new Set(_planTasks.map(t=>t.title));
+  const extraBoard=boardItems.filter(b=>!planTitles.has(b.title));
+  const allItems=[..._planTasks,...extraBoard];
+
+  const total=allItems.length;
+  const done=allItems.filter(t=>t.status==='done').length;
+  const progress=allItems.filter(t=>t.status==='in-progress').length;
+  const pct=total?Math.round(done/total*100):0;
+  const r=28,circ=2*Math.PI*r;
+
+  // Summary
+  $('plan-summary').innerHTML=`
+    <div class="ps-ring">
+      <svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="${r}" fill="none" stroke="#1e293b" stroke-width="5"/>
+      <circle cx="32" cy="32" r="${r}" fill="none" stroke="url(#pg)" stroke-width="5" stroke-dasharray="${circ}" stroke-dashoffset="${circ-(circ*pct/100)}" stroke-linecap="round"/>
+      <defs><linearGradient id="pg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#22c55e"/></linearGradient></defs></svg>
+      <span class="ps-ring-pct">${pct}%</span>
+    </div>
+    <div class="ps-stat"><span class="ps-num" style="color:var(--text)">${total}</span><span class="ps-label">전체</span></div>
+    <div class="ps-stat"><span class="ps-num" style="color:var(--green)">${done}</span><span class="ps-label">완료</span></div>
+    <div class="ps-stat"><span class="ps-num" style="color:var(--yellow)">${progress}</span><span class="ps-label">진행중</span></div>
+    <div class="ps-stat"><span class="ps-num" style="color:var(--dim)">${total-done-progress}</span><span class="ps-label">대기</span></div>
+  `;
+
+  // Agent progress bars
+  const agentStats={};
+  allItems.forEach(t=>{
+    const aid=t.agent_id||'_none';
+    if(!agentStats[aid])agentStats[aid]={total:0,done:0};
+    agentStats[aid].total++;
+    if(t.status==='done')agentStats[aid].done++;
+  });
+  $('plan-agents').innerHTML=Object.entries(agentStats).map(([aid,s])=>{
+    const ag=agents.find(a=>a.id===aid);
+    const name=ag?`${ag.emoji||''} ${ag.name}`:(aid==='_none'?'미배정':aid);
+    const p=s.total?Math.round(s.done/s.total*100):0;
+    const color=p===100?'var(--green)':p>0?'var(--accent)':'#374151';
+    return`<div class="pa-bar"><div class="pa-name"><span>${name}</span><span style="margin-left:auto;font-size:8px;color:${color}">${s.done}/${s.total}</span></div><div class="pa-track"><div class="pa-fill" style="width:${p}%;background:${color}"></div></div></div>`;
+  }).join('');
+
+  // Body: group by category
+  const body=$('plan-body');
+  if(!allItems.length){
+    body.innerHTML=`<div style="text-align:center;padding:40px;color:var(--dim)">
+      <div style="font-size:32px;margin-bottom:8px">📋</div>
+      <div style="font-size:13px;margin-bottom:4px">아직 계획이 없습니다</div>
+      <div style="font-size:11px">에이전트가 작업하면 자동 생성되거나, 아래에서 직접 추가하세요</div>
+    </div>
+    <div class="plan-add-top"><input id="pai-root" placeholder="새 작업 추가..." onkeydown="if(event.key==='Enter')planAddSubmit('')"><button onclick="planAddSubmit('')">추가</button></div>`;
+    return;
+  }
+
+  // Categorize root-level items
+  const catGroups={};
+  // First: plan tree roots
+  const planRoots=_planTasks.filter(t=>!t.parent_id);
+  planRoots.forEach(t=>{
+    const cat=_detectCat(t.title);
+    if(!catGroups[cat])catGroups[cat]=[];
+    catGroups[cat].push(t);
+  });
+  // Then: board tasks not in plan
+  extraBoard.forEach(t=>{
+    const cat=_detectCat(t.title);
+    if(!catGroups[cat])catGroups[cat]=[];
+    catGroups[cat].push(t);
+  });
+
+  let h=`<div class="plan-add-top"><input id="pai-root" placeholder="새 작업 추가..." onkeydown="if(event.key==='Enter')planAddSubmit('')"><button onclick="planAddSubmit('')">추가</button></div>`;
+
+  // Render each category
+  for(const[cat,items]of Object.entries(catGroups)){
+    const meta=PLAN_CAT[cat]||PLAN_CAT.plan;
+    const catDone=items.filter(i=>i.status==='done').length;
+    const catTotal=items.length;
+    const catPct=catTotal?Math.round(catDone/catTotal*100):0;
+    const catId='cat-'+cat;
+    const allDone=catDone===catTotal&&catTotal>0;
+    // Auto-collapse done categories unless user explicitly expanded
+    const collapsed=allDone&&!_planUserExpanded.has(catId)?true:_planCollapsed.has(catId);
+
+    h+=`<div style="margin-bottom:12px">`;
+    h+=`<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-radius:8px;background:${allDone?'rgba(0,255,136,.05)':'rgba('+_hexToRgb(meta.color)+',.08)'};border:1px solid ${allDone?'rgba(0,255,136,.15)':'rgba('+_hexToRgb(meta.color)+',.2)'}" onclick="planToggleCat('${catId}')">`;
+    h+=`<span style="font-size:14px">${meta.icon}</span>`;
+    h+=`<span style="font-size:12px;font-weight:700;color:${allDone?'var(--green)':meta.color};flex:1">${meta.label}</span>`;
+    h+=`<span style="font-size:9px;color:var(--dim)">${catDone}/${catTotal}</span>`;
+    h+=`<div style="width:50px;height:4px;background:#0f172a;border-radius:2px;overflow:hidden"><div style="height:100%;width:${catPct}%;background:${allDone?'var(--green)':meta.color};border-radius:2px"></div></div>`;
+    h+=`<span style="font-size:10px;color:var(--dim)">${collapsed?'▶':'▼'}</span>`;
+    h+=`</div>`;
+
+    if(!collapsed){
+      h+=`<div style="padding-left:12px;margin-top:4px">`;
+      items.forEach(t=>{h+=_buildNode(t,co,allItems)});
+      h+=`</div>`;
+    }
+    h+=`</div>`;
+  }
+
+  body.innerHTML=h;
 }
-function _planAddInline(pid){
-  const k=pid||'root';if(_planAddPar!==k)return'';
-  const co=cos.find(c=>c.id===cur);
-  const opts=(co?.agents||[]).map(a=>`<option value="${a.id}">${a.emoji} ${a.name}</option>`).join('');
-  return`<div class="plan-add-inline"><input id="pai-${k}" placeholder="작업 제목..." onkeydown="if(event.key==='Enter')planAddSubmit('${pid||''}');if(event.key==='Escape')planAddCancel()"><select id="paa-${k}" style="background:#0f172a;border:1px solid #1e3a5f;border-radius:4px;padding:2px 4px;color:var(--text);font-size:10px;max-width:80px"><option value="">담당</option>${opts}</select><button onclick="planAddSubmit('${pid||''}')" style="background:var(--accent);color:white;border:none;border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">↵</button><button onclick="planAddCancel()" style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:10px">✕</button></div>`;
+
+function _hexToRgb(hex){
+  const m=hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+  return m?`${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)}`:'59,130,246';
 }
-function _planNode(t,co){
+
+function planToggleCat(catId){
+  // Track user intent for done categories
+  if(_planCollapsed.has(catId)){_planCollapsed.delete(catId);_planUserExpanded.add(catId)}
+  else{_planCollapsed.add(catId);_planUserExpanded.delete(catId)}
+  renderPlan();
+}
+
+function _buildNode(t,co,allItems){
   const s=t.status||'todo';
-  const chkCls=s==='done'?'done':s==='in-progress'?'progress':'';
-  const chkIcon=s==='done'?'✓':s==='in-progress'?'↻':'';
-  const lblCls=s==='done'?'done':s==='in-progress'?'progress':'';
-  const kids=_planTasks.filter(c=>c.parent_id===t.id);
-  const total=kids.length,done=kids.filter(c=>c.status==='done').length;
-  const ag=(co?.agents||[]).find(a=>a.id===t.agent_id);
-  const agTag=ag?`<span class="plan-agent">${ag.emoji||''} ${ag.name||t.agent_id}</span>`:(t.agent_id?`<span class="plan-agent">${t.agent_id}</span>`:'');
-  let h=`<div class="plan-node" id="pn-${t.id}"><div class="plan-row" onclick="planCycle('${t.id}')"><div class="plan-chk ${chkCls}" title="상태 변경">${chkIcon}</div><span class="plan-label ${lblCls}">${_e(t.title)}</span>${agTag}<div class="plan-acts" onclick="event.stopPropagation()"><button onclick="planAddStart('${t.id}')" title="하위 추가">＋</button><button onclick="planDel('${t.id}')" title="삭제">✕</button></div></div>`;
-  if(total>0)h+=`<div class="plan-pbar"><div class="plan-pfill" style="width:${Math.round(done/total*100)}%"></div></div>`;
-  h+=_planAddInline(t.id);
-  kids.forEach(c=>{h+=_planNode(c,co)});
-  h+='</div>';return h;
+  const kids=(allItems||_planTasks).filter(c=>c.parent_id===t.id);
+  const hasKids=kids.length>0;
+  // Auto-collapse done items with children, unless user expanded
+  const isDone=s==='done';
+  const collapsed=(isDone&&hasKids&&!_planUserExpanded.has(t.id))?true:_planCollapsed.has(t.id);
+  const chkCls=s==='done'?'c-done':s==='in-progress'?'c-progress':s==='blocked'?'c-blocked':'';
+  const chkIcon=s==='done'?'✓':s==='in-progress'?'↻':s==='blocked'?'!':'';
+  const titleCls=s==='done'?'t-done':s==='in-progress'?'t-progress':'';
+  const ag=co?(co.agents||[]).find(a=>a.id===t.agent_id):null;
+  const agTag=ag?`<span class="pn-agent">${ag.emoji||''} ${ag.name}</span>`:(t.agent_id?`<span class="pn-agent">${t.agent_id}</span>`:'');
+  const isBoard=!!t._board;
+
+  let h=`<div class="pn">`;
+  h+=`<div class="pn-card"${isDone?' style="opacity:.6"':''}>`;
+  h+=`<span class="pn-toggle ${hasKids?(collapsed?'':'rotated'):'empty'}" onclick="event.stopPropagation();planToggle('${t.id}')">${hasKids?'▶':''}</span>`;
+  if(!isBoard){
+    h+=`<div class="pn-chk ${chkCls}" onclick="event.stopPropagation();planCycle('${t.id}')" title="상태 변경">${chkIcon}</div>`;
+  }else{
+    h+=`<div class="pn-chk ${chkCls}" style="cursor:default">${chkIcon}</div>`;
+  }
+  h+=`<span class="pn-title ${titleCls}">${_e(t.title)}</span>`;
+  h+=agTag;
+  if(!isBoard){
+    h+=`<div class="pn-acts" onclick="event.stopPropagation()"><button onclick="planAddStart('${t.id}')">＋ 하위</button><button onclick="planDel('${t.id}')">✕</button></div>`;
+  }
+  h+=`</div>`;
+
+  if(hasKids){
+    const doneKids=kids.filter(k=>k.status==='done').length;
+    const p=Math.round(doneKids/kids.length*100);
+    const color=p===100?'var(--green)':p>0?'linear-gradient(90deg,#3b82f6,#60a5fa)':'#1e293b';
+    h+=`<div class="pn-bar"><div class="pn-bar-fill" style="width:${p}%;background:${color}"></div></div>`;
+  }
+
+  if(_planAddPar===t.id){
+    const opts=co?(co.agents||[]).map(a=>`<option value="${a.id}">${a.emoji} ${a.name}</option>`).join(''):'';
+    h+=`<div class="pn-add"><input id="pai-${t.id}" placeholder="하위 작업..." onkeydown="if(event.key==='Enter')planAddSubmit('${t.id}');if(event.key==='Escape')planAddCancel()"><select id="paa-${t.id}"><option value="">담당</option>${opts}</select><button onclick="planAddSubmit('${t.id}')" style="background:var(--accent);color:white">↵</button><button onclick="planAddCancel()" style="background:var(--card);color:var(--dim)">✕</button></div>`;
+  }
+
+  if(hasKids&&!collapsed){
+    h+=`<div class="pn-kids">`;
+    kids.forEach(k=>{h+=_buildNode(k,co,allItems)});
+    h+=`</div>`;
+  }
+  h+=`</div>`;
+  return h;
 }
-function planAddStart(pid){_planAddPar=pid||'root';renderPlanTree();setTimeout(()=>{const el=document.getElementById('pai-'+(pid||'root'));if(el)el.focus()},50)}
-function planAddCancel(){_planAddPar=null;renderPlanTree()}
+
+function planToggle(id){
+  if(_planCollapsed.has(id)){_planCollapsed.delete(id);_planUserExpanded.add(id)}
+  else{_planCollapsed.add(id);_planUserExpanded.delete(id)}
+  renderPlan();
+}
+function planAddStart(pid){_planAddPar=pid||'root';renderPlan();setTimeout(()=>{const el=document.getElementById('pai-'+(pid||'root'));if(el)el.focus()},50)}
+function planAddCancel(){_planAddPar=null;renderPlan()}
 async function planAddSubmit(pid){
   const k=pid||'root',inp=document.getElementById('pai-'+k),sel=document.getElementById('paa-'+k);
   const title=(inp?.value||'').trim();if(!title){planAddCancel();return}
   _planAddPar=null;
   try{const r=await fetch(`/api/plan-task-add/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,parent_id:pid||null,agent_id:sel?.value||'',status:'todo'})});
-    const d=await r.json();if(d.ok){_planTasks.push(d.task);renderPlanTree()}else toast('추가 실패')}catch(e){toast('오류')}
+    const d=await r.json();if(d.ok){_planTasks.push(d.task);renderPlan()}else toast('추가 실패')}catch(e){toast('오류')}
 }
 async function planCycle(id){
   const t=_planTasks.find(x=>x.id===id);if(!t)return;
   const nxt={todo:'in-progress','in-progress':'done',done:'todo',blocked:'todo'};
-  t.status=nxt[t.status]||'todo';renderPlanTree();
+  t.status=nxt[t.status]||'todo';renderPlan();
   try{await fetch(`/api/plan-task-update/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status:t.status})})}catch(e){}
 }
 async function planDel(id){
   const t=_planTasks.find(x=>x.id===id);if(!t||!confirm(`"${t.title}" 삭제?`))return;
   try{const r=await fetch(`/api/plan-task-delete/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
-    const d=await r.json();if(d.ok){const rm=new Set();const col=i=>{rm.add(i);_planTasks.filter(x=>x.parent_id===i).forEach(x=>col(x.id))};col(id);_planTasks=_planTasks.filter(x=>!rm.has(x.id));renderPlanTree()}else toast('삭제 실패')}catch(e){toast('오류')}
+    const d=await r.json();if(d.ok){const rm=new Set();const col=i=>{rm.add(i);_planTasks.filter(x=>x.parent_id===i).forEach(x=>col(x.id))};col(id);_planTasks=_planTasks.filter(x=>!rm.has(x.id));renderPlan()}else toast('삭제 실패')}catch(e){toast('오류')}
 }
 
 // ─── CRUD ───
@@ -926,8 +1208,9 @@ function connectSSE(){
         if((m.text||'').includes('외주')||(m.text||'').includes('outsourc'))notify('🔗 외주 결과',m.from+': '+(m.text||'').substring(0,60));
       }
     });
+    chatMessages=chat;
     lastLen=chat.length;
-    renderIconGrid();renderStatusPanel();
+    renderIconGrid();renderChat();renderStatusPanel();
   }catch(e){}});
   es.onerror=()=>{es.close();sseTimer=setTimeout(connectSSE,3000)};
 }

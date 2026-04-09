@@ -3679,8 +3679,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 # to it, call them, and return ctx._result.
 # ───────────────────────────────────────────────────────────────────────────
 
-class _CallContext:
-    """Minimal fake 'self' that captures _json() calls from Handler methods."""
+class _CallContext(Handler):
+    """Fake 'self' that captures _json() calls from Handler methods, inheriting all helper methods."""
     _result = None
     _status = 200
 
@@ -3784,6 +3784,7 @@ def api_get_task_list(cid: str):
 
 @app.get("/api/file/{file_path:path}")
 def api_get_file(file_path: str):
+    import mimetypes
     from urllib.parse import unquote
     file_path = unquote(file_path)
     parts = file_path.split('/', 1)
@@ -3796,10 +3797,40 @@ def api_get_file(file_path: str):
         if not str(fp).startswith(str(allowed_base) + os.sep):
             raise HTTPException(status_code=403, detail="forbidden")
         if fp.exists() and fp.is_file():
-            return PlainTextResponse(fp.read_text(encoding='utf-8'))
+            mime, _ = mimetypes.guess_type(str(fp))
+            if not mime:
+                mime = 'application/octet-stream'
+            # Binary files (images, etc.) use FileResponse
+            if not mime.startswith('text/'):
+                return FileResponse(str(fp), media_type=mime)
+            # Text files
+            return PlainTextResponse(fp.read_text(encoding='utf-8'), media_type=mime)
     except (OSError, ValueError) as e:
         print(f"[WARN] file read error: {e}")
     raise HTTPException(status_code=404, detail="file not found")
+
+@app.post("/api/upload/{cid}")
+async def api_upload_file(cid: str, request: Request):
+    """Upload a file to company shared deliverables. Accepts multipart/form-data."""
+    import shutil
+    content_type = request.headers.get('content-type', '')
+    if 'multipart/form-data' not in content_type:
+        raise HTTPException(status_code=400, detail="multipart/form-data required")
+    form = await request.form()
+    uploaded = form.get('file')
+    if not uploaded:
+        raise HTTPException(status_code=400, detail="no file provided")
+    dest_dir = DATA / cid / '_shared' / 'deliverables'
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    # Sanitize filename
+    safe_name = uploaded.filename.replace('/', '_').replace('\\', '_').replace('..', '_')
+    dest = dest_dir / safe_name
+    with open(dest, 'wb') as f:
+        content = await uploaded.read()
+        f.write(content)
+    rel_path = f"_shared/deliverables/{safe_name}"
+    print(f"[upload] {cid}: {safe_name} ({len(content)} bytes)")
+    return {"ok": True, "path": rel_path, "name": safe_name, "size": len(content)}
 
 @app.get("/api/costs/{cid}")
 def api_get_costs(cid: str):
