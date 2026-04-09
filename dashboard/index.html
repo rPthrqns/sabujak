@@ -22,14 +22,13 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .hdr-btn:hover{border-color:var(--accent);color:var(--text)}
 .btn-primary{background:var(--accent);color:white;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer}
 
-/* Main layout: icon grid (left) + status panel (right) */
+/* Main layout: icons (left) + chat (right) */
 .dashboard{flex:1;display:flex;overflow:hidden;min-height:0}
-.dash-left{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-.dash-right{width:320px;flex-shrink:0;border-left:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;overflow:hidden;transition:width .2s}
-.dash-right.collapsed{width:0;border-left:none}
+.dash-left{width:auto;flex-shrink:0;display:flex;flex-direction:column;overflow-y:auto;border-right:1px solid var(--border);background:var(--panel)}
+.dash-right{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
 
-/* Agent icon grid */
-.icon-grid{display:flex;flex-wrap:wrap;gap:16px;padding:20px;align-content:flex-start;justify-content:center}
+/* Agent icon grid (vertical sidebar) */
+.icon-grid{display:flex;flex-direction:column;gap:12px;padding:12px;align-items:center}
 .agent-icon{position:relative;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;transition:transform .15s}
 .agent-icon:hover{transform:translateY(-2px)}
 .agent-icon.selected .ai-circle{border-color:var(--accent);box-shadow:0 0 12px rgba(59,130,246,.4)}
@@ -57,36 +56,10 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .ai-link{font-size:7px;color:var(--dim);position:absolute;top:-8px;right:-4px;opacity:0}
 .agent-icon.s-working .ai-link,.agent-icon.s-thinking .ai-link{opacity:1}
 
-/* Status Panel (right side — character sheet) */
-.status-panel{flex:1;overflow-y:auto;padding:16px}
-.sp-empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--dim);font-size:11px;text-align:center;padding:20px}
-.sp-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
-.sp-avatar{width:48px;height:48px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:24px;background:var(--card);flex-shrink:0}
-.sp-name{font-size:16px;font-weight:700;color:#f1f5f9}
-.sp-role{font-size:11px;color:var(--dim)}
-.sp-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;margin-top:4px}
-.sp-badge .dot{width:6px;height:6px;border-radius:50%}
-.sb-working{background:rgba(59,130,246,.15);color:#60a5fa}.sb-working .dot{background:#3b82f6}
-.sb-thinking{background:rgba(251,191,36,.15);color:#fbbf24}.sb-thinking .dot{background:#fbbf24}
-.sb-active{background:rgba(0,255,136,.1);color:#00ff88}.sb-active .dot{background:#00ff88}
-.sb-idle{background:rgba(100,116,139,.15);color:#64748b}.sb-idle .dot{background:#64748b}
-.sb-registering{background:rgba(139,92,246,.15);color:#a78bfa}.sb-registering .dot{background:#a78bfa}
+/* (status panel removed — chat is now the right panel) */
 
-/* Status sections */
-.sp-section{margin-bottom:14px}
-.sp-label{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;font-weight:600}
-.sp-task{background:var(--card);border-radius:6px;padding:8px 10px;font-size:11px;color:var(--text);border-left:3px solid var(--accent)}
-.sp-task.done{border-left-color:var(--green);opacity:.7}
-.sp-task-title{font-weight:600;margin-bottom:2px}
-.sp-task-status{font-size:9px;color:var(--dim)}
-.sp-no-task{font-size:10px;color:var(--dim);padding:6px 0}
-.sp-activity{font-size:10px;line-height:1.6;color:#94a3b8;background:var(--card);border-radius:6px;padding:8px 10px;max-height:120px;overflow-y:auto;white-space:pre-wrap}
-.sp-act-time{font-size:8px;color:var(--dim)}
-.sp-msg-btn{width:100%;background:var(--accent);color:white;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:600;cursor:pointer;margin-top:8px}
-.sp-msg-btn:hover{background:#2563eb}
-
-/* Chat area (below icon grid) */
-.chat-area{flex:1;overflow-y:auto;border-top:1px solid var(--border);padding:8px 12px;display:flex;flex-direction:column;gap:6px}
+/* Chat area (right panel) */
+.chat-area{flex:1;overflow-y:auto;padding:8px 12px;display:flex;flex-direction:column;gap:6px}
 .chat-msg{display:flex;gap:8px;padding:6px;border-radius:8px;font-size:11px;line-height:1.6;max-width:85%}
 .chat-msg.cm-user{align-self:flex-end;background:rgba(59,130,246,.15);flex-direction:row-reverse}
 .chat-msg.cm-agent{align-self:flex-start;background:var(--card)}
@@ -295,17 +268,14 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 
 <!-- Main Dashboard -->
 <div class="dashboard" id="dashboard" style="display:none">
-  <!-- Left: icons + chat -->
+  <!-- Left: icons only -->
   <div class="dash-left">
     <div class="icon-grid" id="icon-grid"></div>
+  </div>
+  <!-- Right: chat -->
+  <div class="dash-right" id="dash-right">
     <div class="chat-area" id="chat-area">
       <div class="chat-empty">에이전트에게 지시하면 대화가 여기에 표시됩니다</div>
-    </div>
-  </div>
-  <!-- Right: character status panel -->
-  <div class="dash-right" id="dash-right">
-    <div class="status-panel" id="status-panel">
-      <div class="sp-empty">에이전트를 클릭하여<br>상태를 확인하세요</div>
     </div>
   </div>
 </div>
@@ -468,7 +438,7 @@ function notify(title,body){
 
 // ─── State ───
 let cos=[],cur=null,lastLen=0,approvals=[],tasks=[],costs=null;
-let selectedAgent=null; // currently selected agent ID for status panel
+let selectedAgent=null;
 const thinking={};
 const agentLog={};
 
@@ -497,7 +467,7 @@ async function refresh(){
     }
   });
   lastLen=chatMessages.length;
-  renderIconGrid();renderChat();renderStatusPanel();extras();
+  renderIconGrid();renderChat();extras();
 }
 
 function pushSpeech(aid,text,name,emoji,time){
@@ -514,7 +484,7 @@ async function extras(){
   if(!cur)return;
   try{const[b,c,a]=await Promise.all([fetch(`/api/board-tasks/${cur}`),fetch(`/api/costs/${cur}`),fetch(`/api/approvals/${cur}?status=pending`)]);
     tasks=await b.json();costs=await c.json();approvals=await a.json();
-    renderBanner();renderStats();updateAprBadge();renderStatusPanel()}catch(e){}
+    renderBanner();renderStats();updateAprBadge()}catch(e){}
 }
 
 // ─── Agent Icon Grid ───
@@ -534,7 +504,7 @@ function renderIconGrid(){
   if(!c||!c.agents){el.innerHTML='<div style="color:var(--dim);font-size:11px;padding:20px">에이전트 없음</div>';return}
   el.innerHTML=c.agents.map(a=>{
     const st=getAgentStatus(a);
-    const sel=selectedAgent===a.id?'selected':'';
+    const sel='';
     return`<div class="agent-icon s-${st} ${sel}" onclick="selectAgent('${a.id}')">
       <div class="ai-circle">${a.emoji||'🤖'}<span class="ai-dot"></span></div>
       <span class="ai-name">${_e(a.name)}</span>
@@ -543,78 +513,9 @@ function renderIconGrid(){
 }
 
 function selectAgent(aid){
-  selectedAgent=selectedAgent===aid?null:aid;
-  renderIconGrid();
-  renderStatusPanel();
-  // Auto-fill command bar
-  if(selectedAgent){
-    const c=cos.find(x=>x.id===cur);
-    const a=c?(c.agents||[]).find(x=>x.id===aid):null;
-    if(a){const inp=$('cmd-input');if(inp&&!inp.value)inp.value='@'+a.name+' ';inp.focus()}
-  }
-}
-
-// ─── Status Panel (Character Sheet) ───
-function renderStatusPanel(){
-  const panel=$('status-panel');if(!panel)return;
-  if(!selectedAgent){
-    panel.innerHTML='<div class="sp-empty">에이전트를 클릭하여<br>상태를 확인하세요</div>';
-    return;
-  }
   const c=cos.find(x=>x.id===cur);
-  const a=c?(c.agents||[]).find(x=>x.id===selectedAgent):null;
-  if(!a){panel.innerHTML='<div class="sp-empty">에이전트를 찾을 수 없습니다</div>';return}
-
-  const st=getAgentStatus(a);
-  const stLabel={thinking:'생각중',working:'작업중',active:'대기',idle:'비활성',registering:'등록중'}[st]||'알수없음';
-  const stCls={thinking:'sb-thinking',working:'sb-working',active:'sb-active',idle:'sb-idle',registering:'sb-registering'}[st]||'sb-idle';
-
-  // Agent tasks
-  const agentTasks=(tasks||[]).filter(t=>t.agent_id===a.id);
-  const activeTasks=agentTasks.filter(t=>t.status==='진행중');
-  const doneTasks=agentTasks.filter(t=>t.status==='완료');
-
-  // Activity log
-  const logs=agentLog[a.id]||[];
-  const recentLogs=logs.slice(-5).reverse();
-
-  let h=`
-    <div class="sp-header">
-      <div class="sp-avatar">${a.emoji||'🤖'}</div>
-      <div>
-        <div class="sp-name">${_e(a.name)}</div>
-        <div class="sp-role">${_e(a.role||'')}</div>
-        <span class="sp-badge ${stCls}"><span class="dot"></span>${stLabel}</span>
-      </div>
-    </div>
-
-    <div class="sp-section">
-      <div class="sp-label">현재 작업</div>
-      ${activeTasks.length?activeTasks.map(t=>`
-        <div class="sp-task"><div class="sp-task-title">🔄 ${_e(t.title)}</div><div class="sp-task-status">${_e(t.status)}</div></div>
-      `).join(''):'<div class="sp-no-task">진행 중인 작업 없음</div>'}
-    </div>
-
-    <div class="sp-section">
-      <div class="sp-label">완료한 작업 <span style="color:var(--green)">${doneTasks.length}</span></div>
-      ${doneTasks.slice(-3).reverse().map(t=>`
-        <div class="sp-task done" style="margin-bottom:4px;cursor:pointer" onclick="showTaskDetail('${t.id}')"><div class="sp-task-title">✅ ${_e(t.title)}</div></div>
-      `).join('')||'<div class="sp-no-task">아직 없음</div>'}
-    </div>
-
-    <div class="sp-section">
-      <div class="sp-label">최근 활동</div>
-      ${recentLogs.length?recentLogs.map(l=>`
-        <div style="margin-bottom:6px">
-          <div class="sp-act-time">${l.time}</div>
-          <div class="sp-activity">${_e(l.raw.replace(/\n/g,' ').substring(0,150))}</div>
-        </div>
-      `).join(''):'<div class="sp-no-task">아직 활동 없음</div>'}
-    </div>
-
-    <button class="sp-msg-btn" onclick="directMsg('${a.name}')">💬 ${_e(a.name)}에게 지시</button>
-  `;
-  panel.innerHTML=h;
+  const a=c?(c.agents||[]).find(x=>x.id===aid):null;
+  if(a)directMsg(a.name);
 }
 
 // ─── Chat ───
@@ -753,8 +654,12 @@ async function aprResolve(res){
     toast(res==='approved'?'✅ 승인 완료':'❌ 반려 완료');
     approvals=approvals.filter(x=>x.id!==a.id);
     _aprIdx=0;
-    renderBanner();
-    fetch(`/api/approvals/${cur}?status=pending`).then(r=>r.json()).then(d=>{approvals=d;renderBanner();updateAprBadge()}).catch(()=>{});
+    renderBanner();updateAprBadge();
+    if(curDrawer==='approvals'){
+      const pend=approvals.filter(a=>a.status==='pending'&&(a.detail||a.title));
+      if(!pend.length)closeDrawer(); else renderDrawerApprovals($('drawer-body'));
+    }
+    fetch(`/api/approvals/${cur}?status=pending`).then(r=>r.json()).then(d=>{approvals=d;renderBanner();updateAprBadge();if(curDrawer==='approvals'){if(!d.length)closeDrawer();else renderDrawerApprovals($('drawer-body'))}}).catch(()=>{});
   }catch(e){toast('❌ 오류: '+e.message)}
 }
 function resolve(id,res,comment){
@@ -1183,13 +1088,13 @@ function connectSSE(){
   es.addEventListener('init',e=>{try{cos=JSON.parse(e.data);renderTabs()}catch(e){}});
   es.addEventListener('agent_thinking',e=>{try{const d=JSON.parse(e.data);
     thinking[d.cid+':'+d.agent_id]={};
-    if(d.cid===cur){renderIconGrid();renderStatusPanel()}
+    if(d.cid===cur){renderIconGrid()}
   }catch(e){}});
   es.addEventListener('agent_done',e=>{try{const d=JSON.parse(e.data);
     notify('✅ 작업 완료',(d.agent_name||d.agent_id)+' 작업 완료');
     delete thinking[d.cid+':'+d.agent_id];
     if(d.cid===cur){
-      renderIconGrid();renderStatusPanel();
+      renderIconGrid();
       extras();
       if(curDrawer==='tasks')renderDrawerTasks($('drawer-body'));
       if(curDrawer==='plan')fetchPlanTasks();
@@ -1210,7 +1115,7 @@ function connectSSE(){
     });
     chatMessages=chat;
     lastLen=chat.length;
-    renderIconGrid();renderChat();renderStatusPanel();
+    renderIconGrid();renderChat();
   }catch(e){}});
   es.onerror=()=>{es.close();sseTimer=setTimeout(connectSSE,3000)};
 }

@@ -2509,7 +2509,7 @@ def nudge_agent(cid, text, target):
     if key in _AGENT_BUSY:
         if key not in _AGENT_QUEUES:
             _AGENT_QUEUES[key] = deque()
-        if len(_AGENT_QUEUES[key]) >= 3:
+        if len(_AGENT_QUEUES[key]) >= 10:
             dropped = _AGENT_QUEUES[key].popleft()
             print(f"[nudge] {agent_id} queue full, dropped oldest: {dropped[:60]}")
             try:
