@@ -37,20 +37,17 @@ from db import (init_db, migrate_from_json, db_get_company, db_save_company, db_
                db_add_memory, db_get_memories,
                db_get_priorities, db_set_priority, db_init_default_priorities, PRIORITY_CATEGORIES)
 
-# ─── Configuration (env overridable) ───
-PORT = int(os.environ.get('PORT', 3000))
-BASE = Path(__file__).resolve().parent.parent
-DATA = Path(os.environ.get('DATA_DIR', str(BASE / "data")))
-COMPANIES_FILE = DATA / "companies.json"
-
-# ─── Timeouts (seconds) ───
-AGENT_RUN_TIMEOUT = int(os.environ.get('AGENT_TIMEOUT', 180))
-AGENT_RETRY_TIMEOUT = int(os.environ.get('AGENT_RETRY_TIMEOUT', 120))
-AGENT_INIT_TIMEOUT = 30
-AGENT_POLL_INTERVAL = 3
-MAX_CONCURRENT_AGENTS = int(os.environ.get('MAX_CONCURRENT', 5))
-WATCHDOG_INTERVAL = 30
-WATCHDOG_STUCK_THRESHOLD = 90
+# ─── Configuration (centralized in config.py) ───
+from config import (
+    PORT, BASE, DATA, COMPANIES_FILE,
+    AGENT_RUN_TIMEOUT, AGENT_RETRY_TIMEOUT, AGENT_INIT_TIMEOUT, AGENT_POLL_INTERVAL,
+    MAX_CONCURRENT_AGENTS, AGENT_QUEUE_MAX,
+    WATCHDOG_INTERVAL, WATCHDOG_STUCK_THRESHOLD,
+    GUARDRAIL_PREP_MAX_LEN, GUARDRAIL_MAX_RETRIES, ESCALATION_MAX_LEVELS,
+    MEMORY_MAX_PER_AGENT, MEMORY_TOP_K,
+    AGENT_LIMIT_BEFORE_APPROVAL,
+    DEFAULT_LANG, DEFAULT_BUDGET,
+)
 SSE_CLIENTS = []          # kept for backward compat reference; not used by FastAPI SSE
 SSE_LOCK = threading.Lock()
 SSE_QUEUES: list = []     # asyncio.Queue per SSE client
@@ -2301,7 +2298,7 @@ def nudge_agent(cid, text, target):
                 # Guardrail: require action — commands or @mentions (no free passes for long text)
                 prep_patterns = ['파악하겠', '확인하겠', '상황을 파악', '상황부터', '먼저 현재', 'check', 'assess', 'analyze first', 'let me',
                                  '검토하겠', '분석하겠', '살펴보겠', '조사하겠', '정리하겠', '계획을 세우', '방안을 마련']
-                is_prep = len(clean) < 150 and any(p in clean.lower() for p in prep_patterns)
+                is_prep = len(clean) < GUARDRAIL_PREP_MAX_LEN and any(p in clean.lower() for p in prep_patterns)
                 has_command = bool(re.search(r'\[TASK_|\[APPROVAL:|\[CRON_|\[TASK_DONE', clean))
                 has_mention = bool(re.search(r'@[A-Za-z]', clean))
                 # Leaders MUST delegate (@mention), not just add tasks
@@ -2509,7 +2506,7 @@ def nudge_agent(cid, text, target):
     if key in _AGENT_BUSY:
         if key not in _AGENT_QUEUES:
             _AGENT_QUEUES[key] = deque()
-        if len(_AGENT_QUEUES[key]) >= 10:
+        if len(_AGENT_QUEUES[key]) >= AGENT_QUEUE_MAX:
             dropped = _AGENT_QUEUES[key].popleft()
             print(f"[nudge] {agent_id} queue full, dropped oldest: {dropped[:60]}")
             try:
