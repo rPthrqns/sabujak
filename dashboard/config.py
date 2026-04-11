@@ -41,3 +41,8 @@ AGENT_LIMIT_BEFORE_APPROVAL = 6  # adding agent #7+ requires approval
 # ─── Defaults ───
 DEFAULT_LANG = 'ko'
 DEFAULT_BUDGET = 10.0
+
+# ─── Observability ───
+DEBUG_PROMPTS = os.environ.get('DEBUG_PROMPTS', '').lower() in ('1', 'true', 'yes')
+PROMPT_DUMP_DIR = Path(os.environ.get('PROMPT_DUMP_DIR', '/tmp/aichub-prompts'))
+REQUEST_ID_HEADER = 'X-Request-Id'

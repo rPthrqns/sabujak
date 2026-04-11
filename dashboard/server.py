@@ -58,6 +58,7 @@ from parsers.commands import (
     parse_approval as _p_approval,
 )
 from parsers.guardrails import is_prep_only as _g_is_prep, has_required_action as _g_has_action
+from observability import dump_prompt as _dump_prompt
 SSE_CLIENTS = []          # kept for backward compat reference; not used by FastAPI SSE
 SSE_LOCK = threading.Lock()
 SSE_QUEUES: list = []     # asyncio.Queue per SSE client
@@ -2191,6 +2192,7 @@ def nudge_agent(cid, text, target):
             print(f"[nudge] calling RUNTIME.run for {agent_id} session={session_id} prompt_len={len(prompt)}")
             try:
                 reply_raw = RUNTIME.run(agent_id, session_id, prompt, timeout=AGENT_RUN_TIMEOUT)
+                _dump_prompt(agent_id, prompt, reply_raw, kind='nudge')
             except subprocess.TimeoutExpired:
                 print(f"[nudge] {agent_id} main timeout")
                 reply_raw = ''
@@ -3689,6 +3691,21 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# ── Request ID middleware: tag every request with X-Request-Id for tracing ──
+import uuid as _uuid
+from starlette.middleware.base import BaseHTTPMiddleware
+from config import REQUEST_ID_HEADER
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        rid = request.headers.get(REQUEST_ID_HEADER) or _uuid.uuid4().hex[:12]
+        request.state.request_id = rid
+        response = await call_next(request)
+        response.headers[REQUEST_ID_HEADER] = rid
+        return response
+
+app.add_middleware(RequestIdMiddleware)
 
 # ── Startup: capture the event loop for thread-safe SSE broadcasts ──
 
