@@ -6,26 +6,77 @@ function _e(s){if(!s)return'';const d=document.createElement('div');d.textConten
 const UI={ko:{},en:{}};
 let lang=localStorage.getItem('hub-lang')||'ko';
 let _prevLang=null; // previous lang before reset
+
+// Translation helper: t('key') or t('key', {name: 'Acme', count: 3})
+function t(key, vars){
+  let s=(UI[lang]&&UI[lang][key])||(UI.en&&UI.en[key])||key;
+  if(vars){for(const k in vars){s=s.replace(new RegExp('\\{'+k+'\\}','g'),vars[k])}}
+  return s;
+}
+
+// Apply translations to DOM elements with data-i18n and data-i18n-attr
+function applyI18n(root){
+  const scope=root||document;
+  // text content
+  scope.querySelectorAll('[data-i18n]').forEach(el=>{
+    const key=el.getAttribute('data-i18n');
+    const v=t(key);
+    if(v&&v!==key)el.textContent=v;
+  });
+  // attributes (format: "attr1:key1;attr2:key2")
+  scope.querySelectorAll('[data-i18n-attr]').forEach(el=>{
+    const spec=el.getAttribute('data-i18n-attr');
+    spec.split(';').forEach(pair=>{
+      const [attr,key]=pair.split(':').map(s=>s.trim());
+      if(!attr||!key)return;
+      const v=t(key);
+      if(v&&v!==key)el.setAttribute(attr,v);
+    });
+  });
+  // update <html lang="">
+  document.documentElement.lang=lang;
+}
+
+async function loadLang(code){
+  try{
+    const r=await fetch(`/api/i18n/${code}`);
+    if(r.ok){UI[code]=await r.json();return true}
+  }catch(e){}
+  return false;
+}
+
 async function checkLang(){
   const o=$('lang-overlay');
   const skip=$('lang-skip-btn');
+  // Always try to load English as fallback
+  if(!UI.en||!Object.keys(UI.en).length)await loadLang('en');
   if(!localStorage.getItem('hub-lang')){
     // First visit — no skip button
     o.style.display='flex';
     if(skip)skip.style.display='none';
+    applyI18n();  // at least translate the overlay itself
     return;
   }
   o.style.display='none';
-  try{const r=await fetch(`/api/i18n/${lang}`);if(r.ok){UI[lang]=await r.json()}}catch(e){}
+  await loadLang(lang);
+  applyI18n();
 }
+
 async function genLang(){
   const v=$('lang-input').value.trim();if(!v)return;
   const b=$('lang-btn'),s=$('lang-status');
-  b.disabled=true;b.textContent='⏳...';s.textContent='Translating...';s.style.color='#60a5fa';
+  b.disabled=true;b.textContent='⏳...';s.textContent=t('lang.translating');s.style.color='#60a5fa';
   try{const r=await fetch('/api/i18n/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({language:v})});const d=await r.json();
-    if(d.ok){s.textContent='✅';localStorage.setItem('hub-lang',d.lang_code);lang=d.lang_code;setTimeout(()=>$('lang-overlay').style.display='none',500)}
-    else{s.textContent='❌ '+d.error;s.style.color='#ef4444';b.disabled=false;b.textContent='🚀 Retry'}}
-  catch(e){s.textContent='❌';b.disabled=false;b.textContent='🚀 Retry'}
+    if(d.ok){
+      s.textContent='✅';
+      localStorage.setItem('hub-lang',d.lang_code);
+      lang=d.lang_code;
+      await loadLang(lang);
+      applyI18n();
+      setTimeout(()=>$('lang-overlay').style.display='none',500);
+    }
+    else{s.textContent='❌ '+d.error;s.style.color='#ef4444';b.disabled=false;b.textContent=t('lang.retry')}}
+  catch(e){s.textContent='❌';b.disabled=false;b.textContent=t('lang.retry')}
 }
 function skipLang(){
   // Restore previous language
@@ -211,7 +262,7 @@ function _md(raw){
 // ─── Chat ───
 function renderChat(){
   const el=$('chat-area');if(!el)return;
-  if(!chatMessages.length){el.innerHTML='<div class="chat-empty">에이전트에게 지시하면 대화가 여기에 표시됩니다</div>';return}
+  if(!chatMessages.length){el.innerHTML=`<div class="chat-empty">${_e(t('chat.empty'))}</div>`;return}
   const c=cos.find(x=>x.id===cur);
   const agentMap={};
   (c?.agents||[]).forEach(a=>{agentMap[a.name]=a});
@@ -243,12 +294,12 @@ async function uploadFile(input){
   const file=input.files[0];
   const formData=new FormData();
   formData.append('file',file);
-  toast(`📎 ${file.name} 업로드 중...`);
+  toast(t('toast.upload_start')+' '+file.name);
   try{
     const r=await fetch(`/api/upload/${cur}`,{method:'POST',body:formData});
     const d=await r.json();
     if(d.ok){
-      toast(`✅ ${file.name} 업로드 완료`);
+      toast(t('toast.upload_success')+' '+file.name);
       // Send chat message with file reference
       const isImage=/\.(png|jpg|jpeg|gif|webp)$/i.test(file.name);
       const msg=isImage
@@ -256,8 +307,8 @@ async function uploadFile(input){
         :`[파일 첨부] ${file.name} (${(file.size/1024).toFixed(1)}KB)`;
       await fetch(`/api/chat/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:msg})});
       refresh();
-    }else toast('❌ 업로드 실패');
-  }catch(e){toast('❌ 업로드 오류')}
+    }else toast(t('toast.upload_fail'));
+  }catch(e){toast(t('toast.upload_error'))}
   input.value='';
 }
 
@@ -292,12 +343,12 @@ function _setCmdBarLock(locked,msg){
   }
 }
 async function send(){
-  const i=$('cmd-input'),t=i.value.trim();if(!t||!cur)return;
+  const i=$('cmd-input'),txt=i.value.trim();if(!txt||!cur)return;
   i.value='';
   // Immediately show user message in chat
-  chatMessages.push({type:'user',text:t,time:now(),from:''});
+  chatMessages.push({type:'user',text:txt,time:now(),from:''});
   renderChat();
-  try{await fetch(`/api/chat/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})})}catch(e){toast('❌ 전송 실패')}
+  try{await fetch(`/api/chat/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt})})}catch(e){toast(t('toast.send_fail'))}
 }
 
 // ─── Approvals ───
@@ -335,7 +386,7 @@ async function aprResolve(res){
     const r=await fetch(`/api/approval-${res==='rejected'?'reject':'approve'}/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({approval_id:a.id,response:comment,resolution:res})});
     const d=await r.json();
     if(d.error){toast('❌ '+d.error);return}
-    toast(res==='approved'?'✅ 승인 완료':'❌ 반려 완료');
+    toast(res==='approved'?t('toast.approved'):t('toast.rejected'));
     approvals=approvals.filter(x=>x.id!==a.id);
     _aprIdx=0;
     renderBanner();updateAprBadge();
@@ -371,10 +422,10 @@ function toggleDrawer(name){
   const btn=$('dt-'+name);if(btn)btn.classList.add('active');
   const body=$('drawer-body'),title=$('drawer-title'),dl=$('dl-link');
   dl.style.display=name==='files'?'':'none';
-  if(name==='tasks'){title.textContent='📋 작업';renderDrawerTasks(body)}
-  else if(name==='approvals'){title.textContent='🔔 결재';renderDrawerApprovals(body)}
+  if(name==='tasks'){title.textContent=t('drawer.title_tasks');renderDrawerTasks(body)}
+  else if(name==='approvals'){title.textContent=t('drawer.title_approvals');renderDrawerApprovals(body)}
   else if(name==='plan'){openPlan();return}
-  else if(name==='files'){title.textContent='📂 자료';renderDrawerFiles(body)}
+  else if(name==='files'){title.textContent=t('drawer.title_files');renderDrawerFiles(body)}
   $('drawer').classList.add('open');
 }
 function openDrawerWith(name,titleText,html){
@@ -387,13 +438,13 @@ function openDrawerWith(name,titleText,html){
 function closeDrawer(){curDrawer=null;$('drawer').classList.remove('open');document.querySelectorAll('.drawer-toggle button').forEach(b=>b.classList.remove('active'))}
 
 function renderDrawerTasks(el){
-  if(!tasks.length){el.innerHTML='<div style="color:var(--dim);text-align:center;padding:20px;font-size:11px">작업 없음</div>';return}
+  if(!tasks.length){el.innerHTML=`<div style="color:var(--dim);text-align:center;padding:20px;font-size:11px">${_e(t('drawer.no_tasks'))}</div>`;return}
   el.innerHTML=tasks.map(t=>{const cls=t.status==='완료'?'done':t.status==='진행중'?'progress':'';
     return`<div class="task-item ${cls}"><span>${t.status==='완료'?'✅':t.status==='진행중'?'🔄':'⬜'}</span><span style="flex:1">${_e(t.title)}</span><span style="color:var(--dim);font-size:8px">${_e(t.agent_id||'')}</span></div>`}).join('');
 }
 function renderDrawerApprovals(el){
   const pend=approvals.filter(a=>a.status==='pending'&&(a.detail||a.title));
-  if(!pend.length){el.innerHTML='<div style="color:var(--dim);text-align:center;padding:20px;font-size:11px">대기 중인 결재 없음</div>';return}
+  if(!pend.length){el.innerHTML=`<div style="color:var(--dim);text-align:center;padding:20px;font-size:11px">${_e(t('drawer.no_approvals'))}</div>`;return}
   el.innerHTML=pend.map(a=>`<div class="appr-card">
     <div style="font-size:11px;font-weight:600;color:var(--text)">${_e(a.title||a.approval_type||'기안')}</div>
     <div style="font-size:9px;color:var(--dim);margin:2px 0">${_e(a.from_agent||'')} · ${a.time||''}</div>
@@ -407,7 +458,7 @@ function renderDrawerApprovals(el){
 }
 function renderDrawerFiles(el){
   fetch(`/api/deliverables/${cur}`).then(r=>r.json()).then(files=>{
-    if(!files.length){el.innerHTML='<div style="color:var(--dim);text-align:center;padding:20px;font-size:11px">결과물 없음</div>';return}
+    if(!files.length){el.innerHTML=`<div style="color:var(--dim);text-align:center;padding:20px;font-size:11px">${_e(t('drawer.no_files'))}</div>`;return}
     el.innerHTML=files.slice(0,30).map(f=>{
       const ext=f.path.split('.').pop().toLowerCase();
       const isImg=['png','jpg','jpeg','gif','webp','svg'].includes(ext);
@@ -419,9 +470,9 @@ function renderDrawerFiles(el){
         <div style="display:flex;align-items:center;gap:6px;width:100%"><span>${icon}</span><span style="flex:1;color:#60a5fa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_e(f.path)}</span><span style="color:var(--dim);font-size:8px">${f.modified||''}</span></div>
         ${preview}
       </div>`}).join('');
-  }).catch(()=>{el.innerHTML='<div style="color:var(--dim);font-size:10px">로드 실패</div>'});
+  }).catch(()=>{el.innerHTML=`<div style="color:var(--dim);font-size:10px">${_e(t('drawer.load_fail'))}</div>`});
   fetch(`/api/newspaper/${cur}`).then(r=>r.json()).then(d=>{
-    if(d.newspaper)el.innerHTML+=`<div style="margin-top:12px;font-size:10px;font-weight:600;color:var(--dim);margin-bottom:4px">📊 리포트</div><div style="font-size:10px;color:var(--text);white-space:pre-wrap;line-height:1.5;background:var(--card);border-radius:6px;padding:8px">${_e(d.newspaper)}</div>`;
+    if(d.newspaper)el.innerHTML+=`<div style="margin-top:12px;font-size:10px;font-weight:600;color:var(--dim);margin-bottom:4px">${_e(t('drawer.report'))}</div><div style="font-size:10px;color:var(--text);white-space:pre-wrap;line-height:1.5;background:var(--card);border-radius:6px;padding:8px">${_e(d.newspaper)}</div>`;
   }).catch(()=>{});
 }
 
@@ -487,10 +538,10 @@ function renderPlan(){
       <defs><linearGradient id="pg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#22c55e"/></linearGradient></defs></svg>
       <span class="ps-ring-pct">${pct}%</span>
     </div>
-    <div class="ps-stat"><span class="ps-num" style="color:var(--text)">${total}</span><span class="ps-label">전체</span></div>
-    <div class="ps-stat"><span class="ps-num" style="color:var(--green)">${done}</span><span class="ps-label">완료</span></div>
-    <div class="ps-stat"><span class="ps-num" style="color:var(--yellow)">${progress}</span><span class="ps-label">진행중</span></div>
-    <div class="ps-stat"><span class="ps-num" style="color:var(--dim)">${total-done-progress}</span><span class="ps-label">대기</span></div>
+    <div class="ps-stat"><span class="ps-num" style="color:var(--text)">${total}</span><span class="ps-label">${_e(t('plan.total'))}</span></div>
+    <div class="ps-stat"><span class="ps-num" style="color:var(--green)">${done}</span><span class="ps-label">${_e(t('plan.done'))}</span></div>
+    <div class="ps-stat"><span class="ps-num" style="color:var(--yellow)">${progress}</span><span class="ps-label">${_e(t('plan.in_progress'))}</span></div>
+    <div class="ps-stat"><span class="ps-num" style="color:var(--dim)">${total-done-progress}</span><span class="ps-label">${_e(t('plan.waiting'))}</span></div>
   `;
 
   // Agent progress bars
@@ -503,7 +554,7 @@ function renderPlan(){
   });
   $('plan-agents').innerHTML=Object.entries(agentStats).map(([aid,s])=>{
     const ag=agents.find(a=>a.id===aid);
-    const name=ag?`${ag.emoji||''} ${ag.name}`:(aid==='_none'?'미배정':aid);
+    const name=ag?`${ag.emoji||''} ${ag.name}`:(aid==='_none'?t('plan.unassigned'):aid);
     const p=s.total?Math.round(s.done/s.total*100):0;
     const color=p===100?'var(--green)':p>0?'var(--accent)':'#374151';
     return`<div class="pa-bar"><div class="pa-name"><span>${name}</span><span style="margin-left:auto;font-size:8px;color:${color}">${s.done}/${s.total}</span></div><div class="pa-track"><div class="pa-fill" style="width:${p}%;background:${color}"></div></div></div>`;
@@ -514,10 +565,10 @@ function renderPlan(){
   if(!allItems.length){
     body.innerHTML=`<div style="text-align:center;padding:40px;color:var(--dim)">
       <div style="font-size:32px;margin-bottom:8px">📋</div>
-      <div style="font-size:13px;margin-bottom:4px">아직 계획이 없습니다</div>
-      <div style="font-size:11px">에이전트가 작업하면 자동 생성되거나, 아래에서 직접 추가하세요</div>
+      <div style="font-size:13px;margin-bottom:4px">${_e(t('plan.no_plan'))}</div>
+      <div style="font-size:11px">${_e(t('plan.auto_hint'))}</div>
     </div>
-    <div class="plan-add-top"><input id="pai-root" placeholder="새 작업 추가..." onkeydown="if(event.key==='Enter')planAddSubmit('')"><button onclick="planAddSubmit('')">추가</button></div>`;
+    <div class="plan-add-top"><input id="pai-root" placeholder="${_e(t('plan.new_placeholder'))}" onkeydown="if(event.key==='Enter')planAddSubmit('')"><button onclick="planAddSubmit('')">${_e(t('plan.add'))}</button></div>`;
     return;
   }
 
@@ -537,7 +588,7 @@ function renderPlan(){
     catGroups[cat].push(t);
   });
 
-  let h=`<div class="plan-add-top"><input id="pai-root" placeholder="새 작업 추가..." onkeydown="if(event.key==='Enter')planAddSubmit('')"><button onclick="planAddSubmit('')">추가</button></div>`;
+  let h=`<div class="plan-add-top"><input id="pai-root" placeholder="${_e(t('plan.new_placeholder'))}" onkeydown="if(event.key==='Enter')planAddSubmit('')"><button onclick="planAddSubmit('')">${_e(t('plan.add'))}</button></div>`;
 
   // Render each category
   for(const[cat,items]of Object.entries(catGroups)){
@@ -653,9 +704,10 @@ async function planCycle(id){
   try{await fetch(`/api/plan-task-update/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status:t.status})})}catch(e){}
 }
 async function planDel(id){
-  const t=_planTasks.find(x=>x.id===id);if(!t||!confirm(`"${t.title}" 삭제?`))return;
+  const node=_planTasks.find(x=>x.id===id);
+  if(!node||!confirm(t('plan.delete_confirm',{title:node.title})))return;
   try{const r=await fetch(`/api/plan-task-delete/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
-    const d=await r.json();if(d.ok){const rm=new Set();const col=i=>{rm.add(i);_planTasks.filter(x=>x.parent_id===i).forEach(x=>col(x.id))};col(id);_planTasks=_planTasks.filter(x=>!rm.has(x.id));renderPlan()}else toast('삭제 실패')}catch(e){toast('오류')}
+    const d=await r.json();if(d.ok){const rm=new Set();const col=i=>{rm.add(i);_planTasks.filter(x=>x.parent_id===i).forEach(x=>col(x.id))};col(id);_planTasks=_planTasks.filter(x=>!rm.has(x.id));renderPlan()}else toast(t('toast.delete_fail'))}catch(e){toast(t('toast.delete_error'))}
 }
 
 // ─── CRUD ───
@@ -672,11 +724,11 @@ async function createCo(){
       $('create-modal').classList.remove('show');$('c-name').value='';$('c-topic').value='';
       const agentCount=(r.company.agents||[]).length;
       cur=r.company.id;load();
-      _setCmdBarLock(true,`⏳ ${agentCount}개 에이전트 등록 중...`);
-      toast(`🏢 ${n} 생성됨 — ${agentCount}개 에이전트 등록 중...`);
+      _setCmdBarLock(true,t('cmd.bar_locked'));
+      toast(t('toast.created',{name:n,count:agentCount}));
       _watchAgentReady(r.company.id,agentCount);
-    }else toast('❌ 생성 실패: '+(r.error||''));
-  }catch(e){toast('❌ 생성 오류')}
+    }else toast(t('toast.create_fail'));
+  }catch(e){toast(t('toast.create_error'))}
   if(btn){btn.disabled=false;btn.textContent='생성'}
 }
 function _watchAgentReady(cid,total){
@@ -688,26 +740,26 @@ function _watchAgentReady(cid,total){
       const registering=c.agents.filter(a=>a.status==='registering');
       if(ready>=total){
         clearInterval(_interval);
-        toast(`✅ 모든 에이전트 준비 완료!`);
+        toast(t('toast.all_ready'));
         _setCmdBarLock(false);
         renderIconGrid();
       }else{
         const names=registering.map(a=>a.emoji+' '+a.name).join(', ');
-        toast(`⏳ ${ready}/${total} 준비 — ${names}`);
+        toast(`⏳ ${ready}/${total} — ${names}`);
       }
     }catch(e){clearInterval(_interval)}
   },5000);
   setTimeout(()=>{clearInterval(_interval);_setCmdBarLock(false)},180000);
 }
 async function delCo(id,name){
-  if(!confirm(`"${name}" 삭제?`))return;
-  toast('🗑️ 삭제 중...');
+  if(!confirm(`"${name}" — ${t('toast.delete_confirm')}`))return;
+  toast('🗑️...');
   try{
     const r=await fetch('/api/company/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
     const d=await r.json();
-    if(d.ok){toast('✅ 삭제 완료');cur=null;load()}
-    else toast('❌ 삭제 실패');
-  }catch(e){toast('❌ 삭제 오류')}
+    if(d.ok){toast(t('toast.delete_success'));cur=null;load()}
+    else toast(t('toast.delete_fail'));
+  }catch(e){toast(t('toast.delete_error'))}
 }
 function fp(n,r,e){$('a-name').value=n;$('a-role').value=r;$('a-emoji').value=e}
 async function openAgent(){
@@ -727,8 +779,8 @@ function dl(){if(cur)window.open('/api/download/'+cur)}
 
 // ─── Outsourcing ───
 function openOutsource(){
-  if(!cur){toast('회사를 먼저 선택하세요');return}
-  if(cos.length<2){toast('아웃소싱할 다른 회사가 필요합니다.');return}
+  if(!cur){toast(t('toast.need_company'));return}
+  if(cos.length<2){toast(t('toast.need_second_company'));return}
   const sel=$('os-company');
   sel.innerHTML=cos.filter(c=>c.id!==cur).map(c=>`<option value="${c.id}">${_e(c.name)}</option>`).join('');
   sel.onchange=()=>{
@@ -744,12 +796,12 @@ async function sendOutsource(){
   const to_cid=$('os-company').value;
   const to_agent=$('os-agent').value;
   const text=$('os-text').value.trim();
-  if(!text){toast('의뢰 내용을 입력하세요');return}
+  if(!text){toast(t('toast.enter_request'));return}
   try{
     const r=await(await fetch('/api/cross-nudge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from_cid:cur,to_cid,from_agent:'',to_agent,text})})).json();
-    if(r.ok){toast(`🔗 ${r.to}에 의뢰 전송 완료`);$('outsource-modal').classList.remove('show')}
-    else toast('실패: '+(r.error||''))
-  }catch(e){toast('오류: '+e.message)}
+    if(r.ok){toast(`${t('toast.outsource_sent')}: ${r.to}`);$('outsource-modal').classList.remove('show')}
+    else toast('❌ '+(r.error||''))
+  }catch(e){toast('❌ '+e.message)}
 }
 
 // ─── Toast ───
@@ -778,7 +830,7 @@ function connectSSE(){
     if(d.cid===cur){renderIconGrid()}
   }catch(e){}});
   es.addEventListener('agent_done',e=>{try{const d=JSON.parse(e.data);
-    notify('✅ 작업 완료',(d.agent_name||d.agent_id)+' 작업 완료');
+    notify(t('notif.done_title'),(d.agent_name||d.agent_id));
     delete thinking[d.cid+':'+d.agent_id];
     if(d.cid===cur){
       renderIconGrid();
@@ -787,7 +839,7 @@ function connectSSE(){
       if(curDrawer==='plan')fetchPlanTasks();
     }
   }catch(e){}});
-  es.addEventListener('approval',e=>{try{notify('🔔 결재 요청','새로운 승인 요청이 도착했습니다');if(cur)fetch(`/api/approvals/${cur}?status=pending`).then(r=>r.json()).then(d=>{approvals=d;renderBanner();updateAprBadge()}).catch(()=>{})}catch(e){}});
+  es.addEventListener('approval',e=>{try{notify(t('notif.approval_title'),t('notif.approval_body'));if(cur)fetch(`/api/approvals/${cur}?status=pending`).then(r=>r.json()).then(d=>{approvals=d;renderBanner();updateAprBadge()}).catch(()=>{})}catch(e){}});
   es.addEventListener('company_update',e=>{try{const d=JSON.parse(e.data);
     if(d.deleted){cos=cos.filter(c=>c.id!==d.id);renderTabs();if(cur===d.id){cur=cos.length?cos[0].id:null;cur?refresh():load()}return}
     if(!d.company||!d.id)return;const i=cos.findIndex(c=>c.id===d.id);if(i>=0)cos[i]=d.company;else cos.push(d.company);renderTabs();
@@ -808,5 +860,8 @@ function connectSSE(){
 }
 
 // ─── Init ───
-document.addEventListener('DOMContentLoaded',()=>{checkLang();initNotif()});
+document.addEventListener('DOMContentLoaded',async()=>{
+  await checkLang();  // loads and applies i18n
+  initNotif();
+});
 load();connectSSE();

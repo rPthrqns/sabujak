@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Company Hub</title>
-<link rel="stylesheet" href="/app.css?v=1">
+<title data-i18n="app.title">AI Company Hub</title>
+<link rel="stylesheet" href="/app.css?v=2">
 </head>
 <body>
 
@@ -12,37 +12,37 @@
 <div class="lang-overlay" id="lang-overlay">
   <div style="background:linear-gradient(145deg,#0f172a,#1e293b);border:1px solid #334155;border-radius:16px;padding:32px;max-width:400px;width:90%;text-align:center">
     <div style="font-size:40px;margin-bottom:12px">🌍</div>
-    <div style="font-size:18px;font-weight:700;color:#f1f5f9;margin-bottom:4px">Welcome to AI Company Hub</div>
-    <div style="font-size:12px;color:#94a3b8;margin-bottom:20px">Type your language to set up the interface</div>
-    <input id="lang-input" placeholder="e.g. Korean, English, 日本語..." style="width:100%;background:#0f172a;border:2px solid #334155;border-radius:10px;padding:12px;color:#f1f5f9;font-size:14px;text-align:center;outline:none;box-sizing:border-box" onkeydown="if(event.key==='Enter')genLang()">
+    <div data-i18n="lang.welcome" style="font-size:18px;font-weight:700;color:#f1f5f9;margin-bottom:4px">Welcome to AI Company Hub</div>
+    <div data-i18n="lang.prompt" style="font-size:12px;color:#94a3b8;margin-bottom:20px">Type your language to set up the interface</div>
+    <input id="lang-input" data-i18n-attr="placeholder:lang.placeholder" placeholder="e.g. Korean, English, 日本語..." style="width:100%;background:#0f172a;border:2px solid #334155;border-radius:10px;padding:12px;color:#f1f5f9;font-size:14px;text-align:center;outline:none;box-sizing:border-box" onkeydown="if(event.key==='Enter')genLang()">
     <div id="lang-status" style="font-size:11px;color:var(--dim);margin-top:10px;min-height:20px"></div>
     <div style="display:flex;gap:8px;margin-top:16px;justify-content:center">
-      <button onclick="genLang()" id="lang-btn" class="btn-primary" style="padding:10px 24px;font-size:13px">🚀 Set Up</button>
-      <button onclick="skipLang()" id="lang-skip-btn" style="display:none;background:transparent;color:var(--dim);border:1px solid #334155;border-radius:8px;padding:10px 16px;font-size:12px;cursor:pointer">취소</button>
+      <button onclick="genLang()" id="lang-btn" data-i18n="lang.setup" class="btn-primary" style="padding:10px 24px;font-size:13px">🚀 Set Up</button>
+      <button onclick="skipLang()" id="lang-skip-btn" data-i18n="lang.cancel" style="display:none;background:transparent;color:var(--dim);border:1px solid #334155;border-radius:8px;padding:10px 16px;font-size:12px;cursor:pointer">취소</button>
     </div>
   </div>
 </div>
 
 <!-- Header -->
 <div class="hdr">
-  <h1>🏢 <span>AI Company Hub</span></h1>
+  <h1>🏢 <span data-i18n="app.title">AI Company Hub</span></h1>
   <div class="tabs" id="tabs"></div>
   <span id="hdr-stats" class="hdr-stats"></span>
-  <input id="search" placeholder="🔍" style="background:var(--card);border:1px solid #374151;border-radius:6px;padding:3px 6px;color:var(--text);font-size:10px;width:70px;outline:none" oninput="debounceSearch(this.value)" onfocus="this.style.width='150px'" onblur="if(!this.value)this.style.width='70px'">
+  <input id="search" data-i18n-attr="placeholder:hdr.search" placeholder="🔍" style="background:var(--card);border:1px solid #374151;border-radius:6px;padding:3px 6px;color:var(--text);font-size:10px;width:70px;outline:none" oninput="debounceSearch(this.value)" onfocus="this.style.width='150px'" onblur="if(!this.value)this.style.width='70px'">
   <div id="search-results" style="display:none;position:fixed;top:38px;right:60px;width:340px;background:#111827;border:1px solid #334155;border-radius:8px;z-index:150;max-height:350px;overflow-y:auto"></div>
-  <button onclick="toggleNotif()" class="hdr-btn" id="notif-toggle" title="알림">🔔</button>
-  <button onclick="resetLang()" class="hdr-btn" title="언어">🌍</button>
-  <button onclick="openAgent()" class="hdr-btn" title="에이전트 추가">🤖＋</button>
-  <button onclick="openOutsource()" class="hdr-btn" title="아웃소싱">🔗</button>
+  <button onclick="toggleNotif()" class="hdr-btn" id="notif-toggle" data-i18n-attr="title:hdr.notif" title="Notifications">🔔</button>
+  <button onclick="resetLang()" class="hdr-btn" data-i18n-attr="title:hdr.lang" title="Language">🌍</button>
+  <button onclick="openAgent()" class="hdr-btn" data-i18n-attr="title:hdr.add_agent" title="Add agent">🤖＋</button>
+  <button onclick="openOutsource()" class="hdr-btn outsource-glow" data-i18n-attr="title:hdr.outsource" title="Outsource">🔗</button>
   <button onclick="openCreate()" class="btn-primary">＋</button>
 </div>
 
 <!-- Empty State -->
 <div class="empty" id="empty">
   <div style="font-size:56px;margin-bottom:16px">🏢</div>
-  <p style="font-size:16px;margin-bottom:8px">아직 회사가 없습니다</p>
-  <p style="font-size:12px;margin-bottom:20px">AI 에이전트가 일하는 가상 회사를 만들어보세요</p>
-  <button onclick="openCreate()" class="btn-primary" style="padding:12px 28px;font-size:14px">＋ 새 회사 만들기</button>
+  <p data-i18n="empty.title" style="font-size:16px;margin-bottom:8px">No companies yet</p>
+  <p data-i18n="empty.hint" style="font-size:12px;margin-bottom:20px">Create a virtual company where AI agents work for you</p>
+  <button onclick="openCreate()" data-i18n="empty.cta" class="btn-primary" style="padding:12px 28px;font-size:14px">＋ Create New Company</button>
 </div>
 
 <!-- Main Dashboard -->
@@ -54,7 +54,7 @@
   <!-- Right: chat -->
   <div class="dash-right" id="dash-right">
     <div class="chat-area" id="chat-area">
-      <div class="chat-empty">에이전트에게 지시하면 대화가 여기에 표시됩니다</div>
+      <div class="chat-empty" data-i18n="chat.empty">Your conversation with agents will appear here</div>
     </div>
   </div>
 </div>
@@ -64,18 +64,18 @@
   <div class="cmd-bar" id="cmd-bar">
     <div class="cmd-normal" id="cmd-normal">
       <input type="file" id="file-input" style="display:none" onchange="uploadFile(this)" accept="image/*,.pdf,.md,.txt,.json,.csv,.zip">
-      <button onclick="$('file-input').click()" style="background:var(--card);border:1px solid #374151;border-radius:10px;padding:8px 12px;cursor:pointer;font-size:12px;color:var(--dim)" title="파일 첨부">📎</button>
-      <input class="cmd-input" id="cmd-input" placeholder="@에이전트 지시사항 입력..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}">
+      <button onclick="$('file-input').click()" data-i18n-attr="title:cmd.attach" style="background:var(--card);border:1px solid #374151;border-radius:10px;padding:8px 12px;cursor:pointer;font-size:12px;color:var(--dim)" title="Attach file">📎</button>
+      <input class="cmd-input" id="cmd-input" data-i18n-attr="placeholder:cmd.placeholder" placeholder="@agent enter instruction..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}">
       <button class="cmd-send" id="cmd-send-btn" onclick="send()">⏎</button>
     </div>
     <div class="cmd-approval" id="cmd-approval" style="display:none">
-      <button class="apr-nav" onclick="aprNav(-1)" title="이전">◀</button>
+      <button class="apr-nav" onclick="aprNav(-1)" data-i18n-attr="title:cmd.prev" title="Previous">◀</button>
       <span class="apr-info" id="apr-info"></span>
-      <input class="apr-comment" id="apr-comment" placeholder="코멘트 (선택)" onkeydown="if(event.key==='Enter'){event.preventDefault();aprResolve('approved')}">
-      <button class="apr-btn apr-yes" onclick="aprResolve('approved')">✅ 승인</button>
-      <button class="apr-btn apr-no" onclick="aprResolve('rejected')">❌ 반려</button>
-      <button class="apr-nav" onclick="aprNav(1)" title="다음">▶</button>
-      <button class="apr-skip" onclick="aprSkip()" title="나중에">✕</button>
+      <input class="apr-comment" id="apr-comment" data-i18n-attr="placeholder:cmd.comment_placeholder" placeholder="Comment (optional)" onkeydown="if(event.key==='Enter'){event.preventDefault();aprResolve('approved')}">
+      <button class="apr-btn apr-yes" onclick="aprResolve('approved')" data-i18n="cmd.approve">✅ Approve</button>
+      <button class="apr-btn apr-no" onclick="aprResolve('rejected')" data-i18n="cmd.reject">❌ Reject</button>
+      <button class="apr-nav" onclick="aprNav(1)" data-i18n-attr="title:cmd.next" title="Next">▶</button>
+      <button class="apr-skip" onclick="aprSkip()" data-i18n-attr="title:cmd.skip" title="Later">✕</button>
     </div>
   </div>
 </div>
@@ -84,8 +84,8 @@
 <div class="plan-overlay" id="plan-overlay" onclick="if(event.target===this)closePlan()">
   <div class="plan-panel">
     <div class="plan-head">
-      <h2>🗂️ 작업 계획</h2>
-      <button class="plan-head-close" onclick="closePlan()">✕</button>
+      <h2 data-i18n="plan.title">🗂️ Work Plan</h2>
+      <button class="plan-head-close" onclick="closePlan()" data-i18n-attr="title:plan.close" title="Close">✕</button>
     </div>
     <div class="plan-summary" id="plan-summary"></div>
     <div class="plan-agents" id="plan-agents"></div>
@@ -95,16 +95,16 @@
 
 <!-- Side drawer toggle buttons -->
 <div class="drawer-toggle" id="drawer-btns" style="display:none">
-  <button onclick="toggleDrawer('tasks')" id="dt-tasks" title="작업">📋</button>
-  <button onclick="toggleDrawer('approvals')" id="dt-approvals" title="결재" style="position:relative">🔔<span class="badge" id="apr-badge" style="display:none">0</span></button>
-  <button onclick="openPlan()" id="dt-plan" title="계획">🗂️</button>
-  <button onclick="toggleDrawer('files')" id="dt-files" title="자료">📂</button>
+  <button onclick="toggleDrawer('tasks')" id="dt-tasks" data-i18n-attr="title:drawer.tasks" title="Tasks">📋</button>
+  <button onclick="toggleDrawer('approvals')" id="dt-approvals" data-i18n-attr="title:drawer.approvals" title="Approvals" style="position:relative">🔔<span class="badge" id="apr-badge" style="display:none">0</span></button>
+  <button onclick="openPlan()" id="dt-plan" data-i18n-attr="title:drawer.plan" title="Plan">🗂️</button>
+  <button onclick="toggleDrawer('files')" id="dt-files" data-i18n-attr="title:drawer.files" title="Files">📂</button>
 </div>
 
 <!-- Side drawer -->
 <div class="drawer" id="drawer">
   <div class="drawer-head">
-    <h3 id="drawer-title">작업</h3>
+    <h3 id="drawer-title" data-i18n="drawer.title_tasks">📋 Tasks</h3>
     <a href="#" onclick="event.preventDefault();dl()" style="font-size:9px;color:var(--accent);text-decoration:none" id="dl-link" style="display:none">📦 ZIP</a>
     <button onclick="closeDrawer()">✕</button>
   </div>
@@ -114,12 +114,12 @@
 <!-- Create Company Modal -->
 <div class="overlay" id="create-modal">
   <div class="modal">
-    <h2>🏢 새 회사 만들기</h2>
-    <label>회사명</label><input id="c-name" placeholder="예: O2O 마케팅 프로젝트">
-    <label>주제 / 목표</label><input id="c-topic" placeholder="예: 온라인 비즈니스">
+    <h2 data-i18n="modal.new_company">🏢 Create New Company</h2>
+    <label data-i18n="modal.company_name">Company name</label><input id="c-name" data-i18n-attr="placeholder:modal.company_name_ph" placeholder="e.g. O2O Marketing Project">
+    <label data-i18n="modal.topic">Topic / Goal</label><input id="c-topic" data-i18n-attr="placeholder:modal.topic_ph" placeholder="e.g. Online business">
     <div class="modal-acts">
-      <button onclick="$('create-modal').classList.remove('show')" style="background:transparent;border:1px solid #374151;color:var(--dim);border-radius:8px;padding:8px 16px;cursor:pointer">취소</button>
-      <button onclick="createCo()" class="btn-primary" style="padding:8px 16px">생성</button>
+      <button onclick="$('create-modal').classList.remove('show')" data-i18n="modal.cancel" style="background:transparent;border:1px solid #374151;color:var(--dim);border-radius:8px;padding:8px 16px;cursor:pointer">Cancel</button>
+      <button onclick="createCo()" data-i18n="modal.create" class="btn-primary" style="padding:8px 16px">Create</button>
     </div>
   </div>
 </div>
@@ -127,8 +127,8 @@
 <!-- Add Agent Modal -->
 <div class="overlay" id="agent-modal">
   <div class="modal">
-    <h2>🤖 에이전트 추가</h2>
-    <label>빠른 선택</label>
+    <h2 data-i18n="modal.add_agent">🤖 Add Agent</h2>
+    <label data-i18n="modal.quick_select">Quick select</label>
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
       <button class="preset" onclick="fp('COO','운영총괄','⚙️')">⚙️ COO</button>
       <button class="preset" onclick="fp('CFO','재무','💰')">💰 CFO</button>
@@ -137,14 +137,14 @@
       <button class="preset" onclick="fp('Developer','개발','👨‍💻')">👨‍💻 Dev</button>
       <button class="preset" onclick="fp('PM','프로젝트 관리','📋')">📋 PM</button>
     </div>
-    <label>이름</label><input id="a-name" placeholder="예: SEO Manager">
-    <label>역할</label><input id="a-role" placeholder="예: SEO 최적화">
+    <label data-i18n="modal.agent_name">Name</label><input id="a-name" data-i18n-attr="placeholder:modal.agent_name_ph" placeholder="e.g. SEO Manager">
+    <label data-i18n="modal.agent_role">Role</label><input id="a-role" data-i18n-attr="placeholder:modal.agent_role_ph" placeholder="e.g. SEO optimization">
     <input id="a-emoji" value="🤖" style="display:none">
-    <label>상위 소속</label><select id="a-parent"><option value="">리더 직속</option></select>
-    <label>AI 모델</label><select id="a-model"><option value="">기본</option></select>
+    <label data-i18n="modal.parent">Reports to</label><select id="a-parent"><option value="" data-i18n="modal.parent_leader">Leader (default)</option></select>
+    <label data-i18n="modal.model">AI Model</label><select id="a-model"><option value="" data-i18n="modal.model_default">Default</option></select>
     <div class="modal-acts">
-      <button onclick="$('agent-modal').classList.remove('show')" style="background:transparent;border:1px solid #374151;color:var(--dim);border-radius:8px;padding:8px 16px;cursor:pointer">취소</button>
-      <button onclick="addAgent()" class="btn-primary" style="padding:8px 16px">추가</button>
+      <button onclick="$('agent-modal').classList.remove('show')" data-i18n="modal.cancel" style="background:transparent;border:1px solid #374151;color:var(--dim);border-radius:8px;padding:8px 16px;cursor:pointer">Cancel</button>
+      <button onclick="addAgent()" data-i18n="modal.add" class="btn-primary" style="padding:8px 16px">Add</button>
     </div>
   </div>
 </div>
@@ -152,19 +152,19 @@
 <!-- Outsource Modal -->
 <div class="overlay" id="outsource-modal">
   <div class="modal">
-    <h2>🔗 아웃소싱 의뢰</h2>
-    <p style="font-size:10px;color:var(--dim);margin-bottom:8px">다른 회사의 에이전트에게 작업을 위임합니다</p>
-    <label>대상 회사</label><select id="os-company"></select>
-    <label>대상 에이전트 (비워두면 리더에게)</label><select id="os-agent"><option value="">리더 자동선택</option></select>
-    <label>의뢰 내용</label>
-    <textarea id="os-text" placeholder="예: 우리 홈페이지 디자인 시안 3종 제작해주세요" style="width:100%;background:var(--card);border:1px solid #374151;border-radius:8px;padding:8px;color:var(--text);font-size:12px;outline:none;box-sizing:border-box;min-height:80px;resize:vertical;font-family:inherit"></textarea>
+    <h2 data-i18n="modal.outsource_title">🔗 Outsource Request</h2>
+    <p data-i18n="modal.outsource_desc" style="font-size:10px;color:var(--dim);margin-bottom:8px">Delegate work to agents of another company</p>
+    <label data-i18n="modal.outsource_company">Target company</label><select id="os-company"></select>
+    <label data-i18n="modal.outsource_agent">Target agent (empty = leader)</label><select id="os-agent"><option value="" data-i18n="modal.outsource_leader_auto">Auto (leader)</option></select>
+    <label data-i18n="modal.outsource_text">Request content</label>
+    <textarea id="os-text" data-i18n-attr="placeholder:modal.outsource_text_ph" placeholder="e.g. Please create 3 homepage design mockups for us" style="width:100%;background:var(--card);border:1px solid #374151;border-radius:8px;padding:8px;color:var(--text);font-size:12px;outline:none;box-sizing:border-box;min-height:80px;resize:vertical;font-family:inherit"></textarea>
     <div class="modal-acts">
-      <button onclick="$('outsource-modal').classList.remove('show')" style="background:transparent;border:1px solid #374151;color:var(--dim);border-radius:8px;padding:8px 16px;cursor:pointer">취소</button>
-      <button onclick="sendOutsource()" class="btn-primary" style="padding:8px 16px">🔗 의뢰 전송</button>
+      <button onclick="$('outsource-modal').classList.remove('show')" data-i18n="modal.cancel" style="background:transparent;border:1px solid #374151;color:var(--dim);border-radius:8px;padding:8px 16px;cursor:pointer">Cancel</button>
+      <button onclick="sendOutsource()" data-i18n="modal.outsource_send" class="btn-primary" style="padding:8px 16px">🔗 Send Request</button>
     </div>
   </div>
 </div>
 
-<script src="/app.js?v=1"></script>
+<script src="/app.js?v=2"></script>
 </body>
 </html>

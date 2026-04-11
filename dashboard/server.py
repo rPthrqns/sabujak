@@ -2359,9 +2359,33 @@ def nudge_agent(cid, text, target):
                     if '[APPROVAL:' not in clean:
                         apr_keywords = ['승인 요청', '승인이 필요', '결재 요청', '예산 승인', 'approval', 'budget approval', 'need approval']
                         if any(kw in clean.lower() for kw in apr_keywords) and len(clean) > 30:
-                            title = clean.split('\n')[0].strip()[:50]
+                            # Build a meaningful title (first non-empty line, fallback to agent + summary)
+                            first_line = next((l.strip() for l in clean.split('\n') if l.strip()), '')
+                            # Strip markdown headers and lead chars
+                            first_line = first_line.lstrip('#').strip()
+                            title = (first_line[:50] if first_line else f"{agent_name} 자동 결재 요청")
+                            # Fingerprint = first 100 chars of detail (collapses minor variations)
+                            fp = ' '.join(clean.split())[:100]
                             existing = db_get_approvals(cid)
-                            if not any(a.get('title','') == title and a.get('status') == 'pending' for a in existing):
+                            # Dedup by: same agent + same first 100 chars of detail
+                            dup = any(
+                                a.get('status') == 'pending'
+                                and a.get('from_agent','') == agent_name
+                                and ' '.join((a.get('detail','') or '').split())[:100] == fp
+                                for a in existing
+                            )
+                            # Also: don't allow more than 3 pending auto-approvals from same agent
+                            same_agent_pending = sum(
+                                1 for a in existing
+                                if a.get('status') == 'pending'
+                                and a.get('from_agent','') == agent_name
+                                and a.get('approval_type','') == 'auto'
+                            )
+                            if dup:
+                                print(f"[auto-approval] SKIP duplicate from {agent_name}: {title[:40]}")
+                            elif same_agent_pending >= 3:
+                                print(f"[auto-approval] SKIP — {agent_name} already has {same_agent_pending} pending auto-approvals")
+                            else:
                                 append_approval(cid, {
                                     'id': str(uuid.uuid4())[:8], 'from_agent': agent_name, 'from_emoji': emoji,
                                     'approval_type': 'auto', 'title': title, 'detail': clean[:400],
