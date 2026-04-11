@@ -48,6 +48,16 @@ from config import (
     AGENT_LIMIT_BEFORE_APPROVAL,
     DEFAULT_LANG, DEFAULT_BUDGET,
 )
+from parsers.commands import (
+    parse_task_add as _p_task_add,
+    parse_task_done as _p_task_done,
+    parse_task_start as _p_task_start,
+    parse_task_block as _p_task_block,
+    parse_cron_add as _p_cron_add,
+    parse_cron_del as _p_cron_del,
+    parse_approval as _p_approval,
+)
+from parsers.guardrails import is_prep_only as _g_is_prep, has_required_action as _g_has_action
 SSE_CLIENTS = []          # kept for backward compat reference; not used by FastAPI SSE
 SSE_LOCK = threading.Lock()
 SSE_QUEUES: list = []     # asyncio.Queue per SSE client
@@ -239,14 +249,14 @@ def extract_task_from_instruction(text, lang="ko"):
     return None
 
 def process_task_commands(cid, text, agent_id):
-    """에이전트 응답에서 [TASK_XXX:...] 명령을 파싱해서 칸반에 반영"""
+    """에이전트 응답에서 [TASK_XXX:...] 명령을 파싱해서 칸반에 반영.
+    Pure parsing is delegated to parsers.commands; this function only does DB I/O."""
     results = []
     board_tasks = db_get_tasks(cid)
-    
-    # TASK_ADD:작업명:우선순위
-    for m in re.finditer(r'\[TASK_ADD:([^:]+):([^\]]+)\]', text):
-        title = m.group(1).strip()
-        priority = m.group(2).strip()
+
+    # ─ TASK_ADD ─
+    for spec in _p_task_add(text):
+        title, priority = spec['title'], spec['priority']
         if any(t.get('title','') == title for t in board_tasks):
             results.append(f"⚠️ '{title}' 이미 존재")
             continue
@@ -254,70 +264,61 @@ def process_task_commands(cid, text, agent_id):
         if task:
             db_update_task(cid, task['id'], {'title': f"{title} ({priority})"})
             results.append(f"✅ '{title}' 칸반에 추가됨 ({priority})")
-    
-    # TASK_DONE:작업명
-    for m in re.finditer(r'\[TASK_DONE:([^\]]+)\]', text):
-        title = m.group(1).strip()
+
+    # ─ TASK_DONE ─
+    for title in _p_task_done(text):
         for t in board_tasks:
             if t.get('title','') == title and t.get('status') != '완료':
                 db_update_task(cid, t['id'], {'status': '완료', 'updated_at': datetime.now().isoformat()})
                 results.append(f"🎉 '{title}' 완료 처리")
                 break
-    
-    # TASK_START:작업명
-    for m in re.finditer(r'\[TASK_START:([^\]]+)\]', text):
-        title = m.group(1).strip()
+
+    # ─ TASK_START ─
+    for title in _p_task_start(text):
         for t in board_tasks:
             if t.get('title','') == title and t.get('status') == '대기':
                 db_update_task(cid, t['id'], {'status': '진행중', 'updated_at': datetime.now().isoformat()})
                 results.append(f"🚀 '{title}' 시작")
                 break
-    
-    # TASK_BLOCK:작업명:사유
-    for m in re.finditer(r'\[TASK_BLOCK:([^:]+):([^\]]+)\]', text):
-        title = m.group(1).strip()
-        reason = m.group(2).strip()
+
+    # ─ TASK_BLOCK ─
+    for spec in _p_task_block(text):
+        title, reason = spec['title'], spec['reason']
         for t in board_tasks:
             if t.get('title','') == title:
                 db_update_task(cid, t['id'], {'status': '검토', 'updated_at': datetime.now().isoformat()})
                 results.append(f"🚫 '{title}' 검토 필요 ({reason})")
                 break
-    
+
     if results:
         print(f"[task_cmds] {agent_id}: {'; '.join(results)}")
-    
-    # CRON 명령 처리
+
+    # ─ CRON ─
     company = get_company(cid)
     agent = next((a for a in company.get('agents', []) if a['id'] == agent_id), None)
-    
-    for m in re.finditer(r'\[CRON_ADD:([^:]+):(\d+):([^\]]+)\]', text):
-        title = m.group(1).strip()
-        interval = int(m.group(2))
-        prompt_text = m.group(3).strip()
+
+    for spec in _p_cron_add(text):
+        title, interval, prompt_text = spec['title'], spec['interval'], spec['prompt']
         if agent:
             task = add_recurring_task(cid, title, prompt_text, interval, agent['id'], agent['name'], agent['emoji'])
             if task:
                 results.append(f"⏰ '{title}' 정기 작업 추가됨 ({interval}분마다)")
-    
-    for m in re.finditer(r'\[CRON_DEL:([^\]]+)\]', text):
-        title = m.group(1).strip()
+
+    for title in _p_cron_del(text):
         company = get_company(cid)
         if company:
             company['recurring_tasks'] = [t for t in company.get('recurring_tasks', []) if t.get('title','') != title]
             update_company(cid, {'recurring_tasks': company['recurring_tasks']})
             results.append(f"🗑️ '{title}' 정기 작업 삭제됨")
-    
+
     if any('CRON' in r for r in results):
         print(f"[cron_cmds] {agent_id}: {'; '.join(results)}")
 
-    # APPROVAL 명령: [APPROVAL:카테고리:제목:내용] 또는 [APPROVAL:제목:내용]
-    existing_approvals = db_get_approvals(cid) if re.search(r'\[APPROVAL:', text) else []
-    for m in re.finditer(r'\[APPROVAL:([^:\]]+):([^:\]]+)(?::([^\]]*))?\]', text):
-        parts = [m.group(1).strip(), m.group(2).strip(), (m.group(3) or '').strip()]
-        if len(parts[0]) <= 10 and parts[0] in ('예산','구매','프로젝트','인사','정책','기타','budget','purchase','project','hr','policy','general'):
-            cat, title, detail = parts[0], parts[1], parts[2]
-        else:
-            cat, title, detail = 'general', parts[0], parts[1]
+    # ─ APPROVAL ─
+    approval_specs = _p_approval(text)
+    existing_approvals = db_get_approvals(cid) if approval_specs else []
+    for spec in approval_specs:
+        cat, title, detail = spec['category'], spec['title'], spec['detail']
         # Dedup: skip if a pending approval with same title already exists
         if any(a.get('title','') == title and a.get('status') == 'pending' for a in existing_approvals):
             print(f"[approval] SKIP duplicate: {cat}/{title} (already pending)")
@@ -1547,27 +1548,7 @@ def restore_running_tasks():
 
 # ─── Company Creation ───
 
-def _welcome_msg(name, topic, agents, lang):
-    team = ', '.join(a['name'] for a in agents[1:])
-    msgs = {
-        'ko': {"greeting": f"안녕하세요 마스터! 👋\n\n저는 '{name}'의 CEO입니다.\n\n주제: {topic}\n팀원: {team}\n\n@멘션으로 팀원들에게 지시하실 수 있습니다. 무엇부터 시작할까요?",
-                "waiting": _s('status.waiting','ko'),
-                "ready": _s('status.ready','ko'),
-                "log": f"🏢 '{name}' 프로젝트 시작. 주제: {topic}"},
-        'en': {"greeting": f"Hello Master! 👋\n\nI'm the CEO of '{name}'.\n\nTopic: {topic}\nTeam: {team}\n\nUse @mention to instruct team members. What should we start with?",
-                "waiting": _s('status.waiting','en'),
-                "ready": _s('status.ready','en'),
-                "log": f"🏢 '{name}' project started. Topic: {topic}"},
-        'ja': {"greeting": f"こんにちはマスター！👋\n\n私は '{name}' のCEOです。\n\nテーマ: {topic}\nチーム: {team}\n\n@メンションでチームメンバーに指示できます。何から始めましょうか？",
-                "waiting": "⏳ エージェントを準備しています。しばらくお待ちください...",
-                "ready": "✅ 全エージェントの準備が完了しました！会話を開始できます。",
-                "log": f"🏢 '{name}' プロジェクト開始。テーマ: {topic}"},
-        'zh': {"greeting": f"你好管理员！👋\n\n我是 '{name}' 的CEO。\n\n主题: {topic}\n团队: {team}\n\n使用@提及来指示团队成员。我们从什么开始？",
-                "waiting": "⏳ 正在准备代理，请稍等...",
-                "ready": "✅ 所有代理已准备就绪！您可以开始对话了。",
-                "log": f"🏢 '{name}' 项目启动。主题: {topic}"},
-    }
-    return msgs.get(lang, msgs['ko'])
+from prompts.welcome import welcome_msg as _welcome_msg  # extracted to prompts/welcome.py
 
 def create_company(name, topic, lang="ko"):
     companies = db_get_all_companies()
