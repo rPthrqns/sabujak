@@ -4784,13 +4784,29 @@ async def api_i18n_generate(request: Request):
             translated = json.loads(m.group())
 
             # Resolve lang_code
-            lang_map = {'korean':'ko','english':'en','japanese':'ja','chinese':'zh','spanish':'es','french':'fr','german':'de','portuguese':'pt','russian':'ru','arabic':'ar','hindi':'hi','thai':'th','vietnamese':'vi','indonesian':'id','turkish':'tr','italian':'it','dutch':'nl'}
-            lang_map.update({chr(0xD55C)+chr(0xAD6D)+chr(0xC5B4):'ko'})
-            lang_code = lang_input[:2].lower()
+            lang_map = {
+                'korean':'ko','english':'en','japanese':'ja','chinese':'zh',
+                'spanish':'es','french':'fr','german':'de','portuguese':'pt',
+                'russian':'ru','italian':'it','dutch':'nl','polish':'pl',
+                'swedish':'sv','norwegian':'no','danish':'da','finnish':'fi',
+                'hindi':'hi','thai':'th','vietnamese':'vi','indonesian':'id','turkish':'tr',
+                # RTL
+                'arabic':'ar','hebrew':'he','persian':'fa','farsi':'fa','urdu':'ur','yiddish':'yi',
+                # Localized names
+                '한국어':'ko','日本語':'ja','中文':'zh','deutsch':'de','español':'es',
+                'français':'fr','português':'pt','русский':'ru','عربي':'ar','עברית':'he',
+            }
+            # Resolve ISO code: try name-based lookup first, fall back to first 2 ASCII chars
+            lang_code = None
+            needle = lang_input.lower().strip()
             for name, code in lang_map.items():
-                if name in lang_input.lower():
+                if name in needle or needle in name:
                     lang_code = code
                     break
+            if not lang_code:
+                # ASCII fallback for unknown languages
+                ascii_prefix = ''.join(c for c in lang_input if c.isascii() and c.isalpha())[:2].lower()
+                lang_code = ascii_prefix or 'xx'
 
             # Extract pieces (tolerate missing sub-keys)
             ui_strings = translated.get('ui') if isinstance(translated.get('ui'), dict) else translated

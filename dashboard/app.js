@@ -14,6 +14,9 @@ function t(key, vars){
   return s;
 }
 
+// RTL language set (ISO 639-1 codes)
+const RTL_LANGS=new Set(['he','ar','fa','ur','yi','ps','sd','ku','dv']);
+
 // Apply translations to DOM elements with data-i18n and data-i18n-attr
 function applyI18n(root){
   const scope=root||document;
@@ -33,8 +36,15 @@ function applyI18n(root){
       if(v&&v!==key)el.setAttribute(attr,v);
     });
   });
-  // update <html lang="">
+  // <html> lang + dir (RTL for Hebrew/Arabic/Persian/Urdu etc)
   document.documentElement.lang=lang;
+  document.documentElement.dir=RTL_LANGS.has(lang)?'rtl':'ltr';
+}
+
+// Map ISO 639-1 language code to BCP47 locale for Intl APIs
+function _locale(){
+  const map={ko:'ko-KR',en:'en-US',ja:'ja-JP',zh:'zh-CN',de:'de-DE',fr:'fr-FR',es:'es-ES',it:'it-IT',pt:'pt-BR',ru:'ru-RU',ar:'ar-SA',he:'he-IL',fa:'fa-IR',hi:'hi-IN',th:'th-TH',vi:'vi-VN',id:'id-ID',tr:'tr-TR',nl:'nl-NL'};
+  return map[lang]||lang||'en-US';
 }
 
 async function loadLang(code){
@@ -159,7 +169,7 @@ function pushSpeech(aid,text,name,emoji,time){
   agentLog[aid].push({raw:text,mentions,time:time||now(),name,emoji});
   if(agentLog[aid].length>10)agentLog[aid].shift();
 }
-function now(){return new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}
+function now(){return new Date().toLocaleTimeString(_locale(),{hour:'2-digit',minute:'2-digit'})}
 
 async function extras(){
   if(!cur)return;

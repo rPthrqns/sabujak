@@ -1,9 +1,9 @@
 {
   "ko": {
-    "greeting_tpl": "안녕하세요 마스터! 👋\n\n저는 '{name}'의 CEO입니다.\n\n주제: {topic}\n팀원: {team}\n\n@멘션으로 팀원들에게 지시하실 수 있습니다. 무엇부터 시작할까요?",
-    "waiting": "⏳ 에이전트를 준비하고 있습니다. 잠시만 기다려주세요...",
-    "ready": "✅ 모든 에이전트 준비 완료! 대화를 시작하세요.",
-    "log_tpl": "🏢 '{name}' 프로젝트 시작. 주제: {topic}"
+    "greeting_tpl": "마스터님 안녕하세요! 👋\n\n저는 '{name}'의 CEO입니다.\n\n주제: {topic}\n팀: {team}\n\n@멘션으로 팀원에게 지시하세요. 무엇부터 시작할까요?",
+    "waiting": "⏳ 에이전트 준비 중입니다. 잠시만 기다려주세요...",
+    "ready": "✅ 모든 에이전트 준비 완료! 대화를 시작할 수 있습니다.",
+    "log_tpl": "🏢 '{name}' 프로젝트 시작됨. 주제: {topic}"
   },
   "en": {
     "greeting_tpl": "Hello Master! 👋\n\nI'm the CEO of '{name}'.\n\nTopic: {topic}\nTeam: {team}\n\nUse @mention to instruct team members. What should we start with?",

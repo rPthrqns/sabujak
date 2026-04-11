@@ -238,3 +238,24 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-thumb{background:#334155;border-radius:2px}
+
+/* ─── RTL support (Hebrew/Arabic/Persian/Urdu/…) ─── */
+/* Layout is auto-mirrored via <html dir="rtl">; these are manual fixes for
+   absolutely-positioned elements and flex reversals we don't want. */
+[dir="rtl"] .dash-left{border-right:none;border-left:1px solid var(--border)}
+[dir="rtl"] .drawer-toggle{right:auto;left:0}
+[dir="rtl"] .drawer-toggle button{border-right:1px solid var(--border);border-left:none;border-radius:0 6px 6px 0}
+[dir="rtl"] .drawer{right:auto;left:0;border-left:none;border-right:1px solid var(--border);transform:translateX(-100%)}
+[dir="rtl"] .drawer.open{transform:translateX(0)}
+[dir="rtl"] .toasts{right:auto;left:20px}
+[dir="rtl"] .chat-msg.cm-user{flex-direction:row}
+[dir="rtl"] .chat-msg.cm-agent{flex-direction:row-reverse}
+[dir="rtl"] .plan-overlay{direction:rtl}
+[dir="rtl"] #search-results{right:auto;left:60px}
+[dir="rtl"] .map-zoom-ctrl{left:auto;right:12px}
+/* Keep numeric progress bars LTR regardless of lang */
+[dir="rtl"] .pn-bar,[dir="rtl"] .pa-track,[dir="rtl"] .plan-pbar{direction:ltr}
+/* Emoji-only buttons don't need mirroring */
+[dir="rtl"] .ai-circle,[dir="rtl"] .sp-avatar{direction:ltr}
+/* Allow long words in narrow buttons (German etc) */
+.btn-primary,.hdr-btn,.cmd-send{word-break:keep-all;overflow-wrap:break-word}

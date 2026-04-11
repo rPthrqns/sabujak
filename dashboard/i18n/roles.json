@@ -1,6 +1,16 @@
 {
   "_comment": "Runtime-extended agent role translations. LLM fills in new languages via /api/i18n/generate. Falls back to config.json agent_templates if missing.",
-  "ko": {},
+  "ko": {
+    "ceo": "경영진",
+    "cmo": "마케팅",
+    "cto": "기술/개발",
+    "cfo": "재무",
+    "designer": "디자인",
+    "hr": "인사",
+    "sales": "영업",
+    "legal": "법무",
+    "support": "지원"
+  },
   "en": {},
   "ja": {},
   "zh": {}
