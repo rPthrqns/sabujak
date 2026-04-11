@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""sabujak - Multi-company Dashboard Server
+"""Sabujak - Multi-company Dashboard Server
 Enhanced with Goals, Kanban Board, Cost Tracking, Approval Gates, and Task Dependencies."""
 import asyncio, hmac, json, os, re, http.server, socketserver, subprocess, threading, time, urllib.request, urllib.parse, uuid
 from collections import deque
@@ -3734,7 +3734,7 @@ def _call(method_fn, path: str, *args, headers: dict | None = None):
     return ctx._result or {"ok": True}, ctx._status
 
 
-app = FastAPI(title="sabujak")
+app = FastAPI(title="Sabujak")
 
 app.add_middleware(
     CORSMiddleware,
@@ -5130,7 +5130,7 @@ migrate_from_json()
 init_companies()
 threading.Thread(target=ensure_agents_registered, daemon=True).start()
 restore_running_tasks()
-print(f"🚀 sabujak: http://localhost:{PORT}", flush=True)
+print(f"🚀 Sabujak: http://localhost:{PORT}", flush=True)
 
 def _watchdog():
     """30초마다 에이전트 상태 체크, working이 오래 지속되면 active로 복원"""

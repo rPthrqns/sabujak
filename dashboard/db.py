@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SQLite database layer for sabujak.
+"""SQLite database layer for Sabujak.
 
 Sharding layout:
   hub.db              — companies, snapshots, webhook_routes  (meta)

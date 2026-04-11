@@ -1,4 +1,4 @@
-# sabujak (사부작)
+# Sabujak (사부작)
 
 > **AI agents quietly getting work done, one small task at a time.**
 >

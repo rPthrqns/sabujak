@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title data-i18n="app.title">sabujak</title>
+<title data-i18n="app.title">Sabujak</title>
 <link rel="stylesheet" href="/app.css?v=2">
 </head>
 <body>
@@ -12,7 +12,7 @@
 <div class="lang-overlay" id="lang-overlay">
   <div style="background:linear-gradient(145deg,#0f172a,#1e293b);border:1px solid #334155;border-radius:16px;padding:32px;max-width:400px;width:90%;text-align:center">
     <div style="font-size:40px;margin-bottom:12px">🌍</div>
-    <div data-i18n="lang.welcome" style="font-size:18px;font-weight:700;color:#f1f5f9;margin-bottom:4px">Welcome to sabujak</div>
+    <div data-i18n="lang.welcome" style="font-size:18px;font-weight:700;color:#f1f5f9;margin-bottom:4px">Welcome to Sabujak</div>
     <div data-i18n="lang.prompt" style="font-size:12px;color:#94a3b8;margin-bottom:20px">Type your language to set up the interface</div>
     <input id="lang-input" data-i18n-attr="placeholder:lang.placeholder" placeholder="e.g. Korean, English, 日本語..." style="width:100%;background:#0f172a;border:2px solid #334155;border-radius:10px;padding:12px;color:#f1f5f9;font-size:14px;text-align:center;outline:none;box-sizing:border-box" onkeydown="if(event.key==='Enter')genLang()">
     <div id="lang-status" style="font-size:11px;color:var(--dim);margin-top:10px;min-height:20px"></div>
@@ -25,7 +25,7 @@
 
 <!-- Header -->
 <div class="hdr">
-  <h1>🏢 <span data-i18n="app.title">sabujak</span></h1>
+  <h1>🏢 <span data-i18n="app.title">Sabujak</span></h1>
   <div class="tabs" id="tabs"></div>
   <span id="hdr-stats" class="hdr-stats"></span>
   <input id="search" data-i18n-attr="placeholder:hdr.search" placeholder="🔍" style="background:var(--card);border:1px solid #374151;border-radius:6px;padding:3px 6px;color:var(--text);font-size:10px;width:70px;outline:none" oninput="debounceSearch(this.value)" onfocus="this.style.width='150px'" onblur="if(!this.value)this.style.width='70px'">

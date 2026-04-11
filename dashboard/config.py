@@ -1,4 +1,4 @@
-"""Centralized configuration for sabujak.
+"""Centralized configuration for Sabujak.
 
 All magic numbers, timeouts, and tunable parameters live here.
 Override via environment variables when noted.
