@@ -1,0 +1,7 @@
+{
+  "_comment": "Runtime-extended agent role translations. LLM fills in new languages via /api/i18n/generate. Falls back to config.json agent_templates if missing.",
+  "ko": {},
+  "en": {},
+  "ja": {},
+  "zh": {}
+}

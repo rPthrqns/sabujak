@@ -1551,6 +1551,33 @@ def restore_running_tasks():
 
 from prompts.welcome import welcome_msg as _welcome_msg  # extracted to prompts/welcome.py
 
+# ── Runtime-extended role translations (filled by /api/i18n/generate) ──
+_ROLES_FILE = BASE / "dashboard" / "i18n" / "roles.json"
+
+def _load_runtime_roles() -> dict:
+    try:
+        return json.loads(_ROLES_FILE.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+def _save_runtime_roles(data: dict) -> None:
+    try:
+        _ROLES_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding='utf-8')
+    except OSError as e:
+        print(f"[roles] save failed: {e}")
+
+def get_agent_role(aid: str, lang: str) -> str:
+    """Return the localized role label for agent template `aid`.
+    Priority: runtime roles.json[lang][aid] > config.json agent_templates[aid].role[lang] > ...en > ''"""
+    rt = _load_runtime_roles()
+    if lang in rt and aid in rt[lang] and rt[lang][aid]:
+        return rt[lang][aid]
+    t = AGENT_TEMPLATES.get(aid, {})
+    role_map = t.get('role', {})
+    if isinstance(role_map, dict):
+        return role_map.get(lang) or role_map.get('en') or aid
+    return str(role_map) or aid
+
 def create_company(name, topic, lang="ko"):
     companies = db_get_all_companies()
     slug = re.sub(r'[^a-z0-9]', '-', name.lower()).strip('-')
@@ -1563,7 +1590,7 @@ def create_company(name, topic, lang="ko"):
         agent_id = f"{company_id}-{aid}"
         agent_name = t["name"]
         agent_emoji = t["emoji"]
-        agent_role = t["role"].get(lang, t["role"]["en"])
+        agent_role = get_agent_role(aid, lang)
         agent_workspace = DATA / company_id / "workspaces" / aid
         def make_done_callback(cid, aid_val, total_agents, lang):
             def _done():
@@ -4721,28 +4748,103 @@ async def api_i18n_generate(request: Request):
     if not en_file.exists():
         return JSONResponse({"error": "en.json missing"}, status_code=500)
     en_strings = json.loads(en_file.read_text(encoding='utf-8'))
-    keys_json = json.dumps(en_strings, indent=2, ensure_ascii=False)
-    prompt = f"Translate these UI strings to {lang_input}. Return ONLY valid JSON, same keys, keep emoji prefixes. Be natural and concise.\n\n{keys_json}"
+
+    # Collect en role map for all templates
+    en_roles = {aid: (tpl.get('role', {}).get('en') if isinstance(tpl.get('role'), dict) else '') or aid
+                for aid, tpl in AGENT_TEMPLATES.items()}
+
+    # English welcome template (reference to translate from)
+    welcome_en = {
+        "greeting_tpl": "Hello Master! 👋\n\nI'm the CEO of '{name}'.\n\nTopic: {topic}\nTeam: {team}\n\nUse @mention to instruct team members. What should we start with?",
+        "waiting": "⏳ Preparing agents, please wait...",
+        "ready": "✅ All agents are ready! You can start the conversation.",
+        "log_tpl": "🏢 '{name}' project started. Topic: {topic}"
+    }
+
+    bundle = {
+        "ui": en_strings,
+        "roles": en_roles,
+        "welcome": welcome_en,
+    }
+    keys_json = json.dumps(bundle, indent=2, ensure_ascii=False)
+    prompt = (
+        f"Translate this JSON bundle to {lang_input}. "
+        f"Return ONLY valid JSON with the same top-level keys (ui, roles, welcome) and same inner keys. "
+        f"Keep emoji prefixes exactly. Keep placeholders like {{name}}, {{topic}}, {{team}}, {{count}} unchanged. "
+        f"Be natural and concise. For 'roles', translate job titles (e.g. Executive, Marketing, Finance) naturally.\n\n"
+        f"{keys_json}"
+    )
+
     def _gen():
         try:
-            result = RUNTIME.run('main', f'i18n-{lang_input[:10]}', prompt, timeout=60)
+            result = RUNTIME.run('main', f'i18n-{lang_input[:10]}', prompt, timeout=75)
             m = re.search(r'\{[\s\S]*\}', result)
-            if not m: return {'ok':False,'error':'no JSON in response'}
+            if not m:
+                return {'ok': False, 'error': 'no JSON in response'}
             translated = json.loads(m.group())
-            lang_map = {'korean':'ko','english':'en','japanese':'ja','chinese':'zh','spanish':'es','french':'fr','german':'de','portuguese':'pt','russian':'ru','arabic':'ar','hindi':'hi','thai':'th','vietnamese':'vi','indonesian':'id','turkish':'tr','italian':'it'}
+
+            # Resolve lang_code
+            lang_map = {'korean':'ko','english':'en','japanese':'ja','chinese':'zh','spanish':'es','french':'fr','german':'de','portuguese':'pt','russian':'ru','arabic':'ar','hindi':'hi','thai':'th','vietnamese':'vi','indonesian':'id','turkish':'tr','italian':'it','dutch':'nl'}
             lang_map.update({chr(0xD55C)+chr(0xAD6D)+chr(0xC5B4):'ko'})
             lang_code = lang_input[:2].lower()
             for name, code in lang_map.items():
-                if name in lang_input.lower(): lang_code = code; break
-            (I18N_DIR / f"{lang_code}.json").write_text(json.dumps(translated, indent=2, ensure_ascii=False), encoding='utf-8')
-            print(f"[i18n] Generated {lang_code}.json ({len(translated)} keys)")
-            return {'ok':True,'lang_code':lang_code,'keys':len(translated)}
+                if name in lang_input.lower():
+                    lang_code = code
+                    break
+
+            # Extract pieces (tolerate missing sub-keys)
+            ui_strings = translated.get('ui') if isinstance(translated.get('ui'), dict) else translated
+            roles_map = translated.get('roles') if isinstance(translated.get('roles'), dict) else {}
+            welcome_tpl = translated.get('welcome') if isinstance(translated.get('welcome'), dict) else {}
+
+            # Save UI strings
+            (I18N_DIR / f"{lang_code}.json").write_text(
+                json.dumps(ui_strings, indent=2, ensure_ascii=False), encoding='utf-8'
+            )
+
+            # Merge roles into roles.json
+            if roles_map:
+                rt_roles = _load_runtime_roles()
+                rt_roles.setdefault(lang_code, {})
+                for aid, label in roles_map.items():
+                    if aid in AGENT_TEMPLATES and isinstance(label, str) and label.strip():
+                        rt_roles[lang_code][aid] = label.strip()
+                _save_runtime_roles(rt_roles)
+
+            # Merge welcome into welcome.json
+            if welcome_tpl:
+                welcome_file = I18N_DIR / "welcome.json"
+                try:
+                    all_welcome = json.loads(welcome_file.read_text(encoding='utf-8'))
+                except (OSError, json.JSONDecodeError):
+                    all_welcome = {}
+                # Only keep valid keys
+                clean_tpl = {
+                    k: welcome_tpl[k]
+                    for k in ('greeting_tpl', 'waiting', 'ready', 'log_tpl')
+                    if isinstance(welcome_tpl.get(k), str) and welcome_tpl.get(k).strip()
+                }
+                if clean_tpl:
+                    all_welcome[lang_code] = clean_tpl
+                    welcome_file.write_text(
+                        json.dumps(all_welcome, indent=2, ensure_ascii=False), encoding='utf-8'
+                    )
+
+            print(f"[i18n] Generated {lang_code}: ui={len(ui_strings)} roles={len(roles_map)} welcome={len(welcome_tpl)}")
+            return {
+                'ok': True,
+                'lang_code': lang_code,
+                'keys': len(ui_strings),
+                'roles': len(roles_map),
+                'welcome': bool(welcome_tpl),
+            }
         except Exception as e:
-            return {'ok':False,'error':str(e)}
+            return {'ok': False, 'error': str(e)}
+
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor() as pool:
         try:
-            result = pool.submit(_gen).result(timeout=90)
+            result = pool.submit(_gen).result(timeout=120)
             return result
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
