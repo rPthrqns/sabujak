@@ -130,12 +130,12 @@
     <h2 data-i18n="modal.add_agent">🤖 Add Agent</h2>
     <label data-i18n="modal.quick_select">Quick select</label>
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
-      <button class="preset" onclick="fp('COO','운영총괄','⚙️')">⚙️ COO</button>
-      <button class="preset" onclick="fp('CFO','재무','💰')">💰 CFO</button>
-      <button class="preset" onclick="fp('HR','인사','👥')">👥 HR</button>
-      <button class="preset" onclick="fp('Designer','디자인','🎨')">🎨 Design</button>
-      <button class="preset" onclick="fp('Developer','개발','👨‍💻')">👨‍💻 Dev</button>
-      <button class="preset" onclick="fp('PM','프로젝트 관리','📋')">📋 PM</button>
+      <button class="preset" onclick="fpKey('COO','preset.coo','⚙️')">⚙️ COO</button>
+      <button class="preset" onclick="fpKey('CFO','preset.cfo','💰')">💰 CFO</button>
+      <button class="preset" onclick="fpKey('HR','preset.hr','👥')">👥 HR</button>
+      <button class="preset" onclick="fpKey('Designer','preset.design','🎨')">🎨 Design</button>
+      <button class="preset" onclick="fpKey('Developer','preset.dev','👨‍💻')">👨‍💻 Dev</button>
+      <button class="preset" onclick="fpKey('PM','preset.pm','📋')">📋 PM</button>
     </div>
     <label data-i18n="modal.agent_name">Name</label><input id="a-name" data-i18n-attr="placeholder:modal.agent_name_ph" placeholder="e.g. SEO Manager">
     <label data-i18n="modal.agent_role">Role</label><input id="a-role" data-i18n-attr="placeholder:modal.agent_role_ph" placeholder="e.g. SEO optimization">

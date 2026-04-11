@@ -109,7 +109,7 @@ function toggleNotif(){
 function updateNotifBtn(){
   const b=$('notif-toggle');if(!b)return;
   b.style.opacity=notifEnabled?'1':'0.4';
-  b.title=notifEnabled?'알림 켜짐':'알림 꺼짐';
+  b.title=notifEnabled?t('notif.on'):t('notif.off');
 }
 function notify(title,body){
   if(!notifEnabled||!document.hidden)return;
@@ -272,7 +272,7 @@ function renderChat(){
     const isUser=m.type==='user'||m.type==='master';
     const agent=m.from?agentMap[m.from]:null;
     const emoji=isUser?'👤':(agent?agent.emoji||'🤖':'🤖');
-    const name=isUser?'나':(m.from||'시스템');
+    const name=isUser?t('chat.me'):(m.from||t('chat.system'));
     const cls=isUser?'cm-user':'cm-agent';
     let textHtml=_md(m.text||'');
     return`<div class="chat-msg ${cls}">
@@ -323,7 +323,7 @@ function showTaskDetail(taskId){
     <h4>${t.status==='완료'?'✅':'🔄'} ${_e(t.title)}</h4>
     ${agent?`<div style="font-size:10px;color:#a5b4fc;margin-bottom:6px">${agent.emoji||'🤖'} ${_e(agent.name)} · ${_e(agent.role||'')}</div>`:''}
     <div style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:9px;font-weight:600;margin-bottom:8px;${t.status==='완료'?'background:#064e3b;color:#6ee7b7':t.status==='진행중'?'background:#1c1917;color:#fbbf24':'background:#1e293b;color:var(--dim)'}">${_e(t.status||'대기')}</div>
-    <div class="dp-content">${_e(t.result||t.detail||t.description||'결과 없음')}</div>
+    <div class="dp-content">${_e(t.result||t.detail||t.description||window.t('popup.no_result'))}</div>
   `;
   document.body.appendChild(popup);
   const closer=e=>{if(!popup.contains(e.target)){popup.remove();document.removeEventListener('click',closer)}};
@@ -365,7 +365,7 @@ function renderBanner(){
   if(aprEl)aprEl.style.display='flex';
   _aprIdx=Math.max(0,Math.min(_aprIdx,pend.length-1));
   const a=pend[_aprIdx];
-  if(infoEl)infoEl.innerHTML=`📋 ${_e((a.title||a.detail||'기안').substring(0,40))}<span class="apr-from">${_e(a.from_agent||'')} · ${pend.length>1?(_aprIdx+1)+'/'+pend.length:''}</span>`;
+  if(infoEl)infoEl.innerHTML=`📋 ${_e((a.title||a.detail||t('approval.default')).substring(0,40))}<span class="apr-from">${_e(a.from_agent||'')} · ${pend.length>1?(_aprIdx+1)+'/'+pend.length:''}</span>`;
   if(commentEl)commentEl.value='';
 }
 function aprNav(dir){
@@ -446,10 +446,10 @@ function renderDrawerApprovals(el){
   const pend=approvals.filter(a=>a.status==='pending'&&(a.detail||a.title));
   if(!pend.length){el.innerHTML=`<div style="color:var(--dim);text-align:center;padding:20px;font-size:11px">${_e(t('drawer.no_approvals'))}</div>`;return}
   el.innerHTML=pend.map(a=>`<div class="appr-card">
-    <div style="font-size:11px;font-weight:600;color:var(--text)">${_e(a.title||a.approval_type||'기안')}</div>
+    <div style="font-size:11px;font-weight:600;color:var(--text)">${_e(a.title||a.approval_type||t('approval.default'))}</div>
     <div style="font-size:9px;color:var(--dim);margin:2px 0">${_e(a.from_agent||'')} · ${a.time||''}</div>
     <div style="font-size:10px;color:var(--text);white-space:pre-wrap;max-height:80px;overflow-y:auto;margin:4px 0">${_e((a.detail||'').substring(0,300))}</div>
-    <input id="apr-comment-${a.id}" placeholder="코멘트 (선택)" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:5px 8px;color:var(--text);font-size:10px;outline:none;margin:4px 0;box-sizing:border-box">
+    <input id="apr-comment-${a.id}" placeholder="${_e(t('approval.comment_ph'))}" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:5px 8px;color:var(--text);font-size:10px;outline:none;margin:4px 0;box-sizing:border-box">
     <div style="display:flex;gap:4px">
       <button onclick="resolve('${a.id}','approved',document.getElementById('apr-comment-${a.id}')?.value)" style="background:#064e3b;color:#6ee7b7">✅ 승인</button>
       <button onclick="resolve('${a.id}','rejected',document.getElementById('apr-comment-${a.id}')?.value)" style="background:#7f1d1d;color:#fca5a5">❌ 반려</button>
@@ -481,12 +481,13 @@ let _planTasks=[],_planAddPar=null,_planCollapsed=new Set(),_planUserExpanded=ne
 
 // Category detection (reused from old fog map logic)
 // Order matters: more specific first; 'plan' is the fallback.
+// Keywords stay as-is (content detection); labels come from i18n at render time.
 const PLAN_CAT={
-  design:{label:'디자인 Design',icon:'🎨',color:'#ec4899',kw:['디자인','UI','UX','시안','로고','이미지','design','logo','wireframe','mockup','프로토']},
-  market:{label:'마케팅 Marketing',icon:'📢',color:'#22c55e',kw:['마케팅','홍보','SNS','광고','SEO','콘텐츠','브랜딩','marketing','branding','content','ads','seo','고객','캠페인']},
-  dev:{label:'개발 Development',icon:'💻',color:'#3b82f6',kw:['코딩','개발','API','서버','프론트','백엔드','DB','배포','frontend','backend','deploy','server','database','coding','api','버그','테스트','구현']},
-  ops:{label:'운영 Operations',icon:'⚙️',color:'#f59e0b',kw:['운영','인사','재무','예산','비용','법률','채용','HR','finance','budget','legal','policy','급여']},
-  plan:{label:'기획 Planning',icon:'📊',color:'#8b5cf6',kw:['기획','전략','분석','리서치','조사','계획','planning','strategy','research','analysis','보고','정리']},
+  design:{labelKey:'cat.design',icon:'🎨',color:'#ec4899',kw:['디자인','UI','UX','시안','로고','이미지','design','logo','wireframe','mockup','프로토']},
+  market:{labelKey:'cat.market',icon:'📢',color:'#22c55e',kw:['마케팅','홍보','SNS','광고','SEO','콘텐츠','브랜딩','marketing','branding','content','ads','seo','고객','캠페인']},
+  dev:{labelKey:'cat.dev',icon:'💻',color:'#3b82f6',kw:['코딩','개발','API','서버','프론트','백엔드','DB','배포','frontend','backend','deploy','server','database','coding','api','버그','테스트','구현']},
+  ops:{labelKey:'cat.ops',icon:'⚙️',color:'#f59e0b',kw:['운영','인사','재무','예산','비용','법률','채용','HR','finance','budget','legal','policy','급여']},
+  plan:{labelKey:'cat.plan',icon:'📊',color:'#8b5cf6',kw:['기획','전략','분석','리서치','조사','계획','planning','strategy','research','analysis','보고','정리']},
 };
 function _detectCat(title){
   if(!title)return'plan';
@@ -604,7 +605,7 @@ function renderPlan(){
     h+=`<div style="margin-bottom:12px">`;
     h+=`<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-radius:8px;background:${allDone?'rgba(0,255,136,.05)':'rgba('+_hexToRgb(meta.color)+',.08)'};border:1px solid ${allDone?'rgba(0,255,136,.15)':'rgba('+_hexToRgb(meta.color)+',.2)'}" onclick="planToggleCat('${catId}')">`;
     h+=`<span style="font-size:14px">${meta.icon}</span>`;
-    h+=`<span style="font-size:12px;font-weight:700;color:${allDone?'var(--green)':meta.color};flex:1">${meta.label}</span>`;
+    h+=`<span style="font-size:12px;font-weight:700;color:${allDone?'var(--green)':meta.color};flex:1">${_e(t(meta.labelKey))}</span>`;
     h+=`<span style="font-size:9px;color:var(--dim)">${catDone}/${catTotal}</span>`;
     h+=`<div style="width:50px;height:4px;background:#0f172a;border-radius:2px;overflow:hidden"><div style="height:100%;width:${catPct}%;background:${allDone?'var(--green)':meta.color};border-radius:2px"></div></div>`;
     h+=`<span style="font-size:10px;color:var(--dim)">${collapsed?'▶':'▼'}</span>`;
@@ -651,7 +652,7 @@ function _buildNode(t,co,allItems){
   h+=`<div class="pn-card"${isDone?' style="opacity:.6"':''}>`;
   h+=`<span class="pn-toggle ${hasKids?(collapsed?'':'rotated'):'empty'}" onclick="event.stopPropagation();planToggle('${t.id}')">${hasKids?'▶':''}</span>`;
   if(!isBoard){
-    h+=`<div class="pn-chk ${chkCls}" onclick="event.stopPropagation();planCycle('${t.id}')" title="상태 변경">${chkIcon}</div>`;
+    h+=`<div class="pn-chk ${chkCls}" onclick="event.stopPropagation();planCycle('${t.id}')" title="${_e(window.t('plan.cycle_status'))}">${chkIcon}</div>`;
   }else{
     h+=`<div class="pn-chk ${chkCls}" style="cursor:default">${chkIcon}</div>`;
   }
@@ -671,7 +672,7 @@ function _buildNode(t,co,allItems){
 
   if(_planAddPar===t.id){
     const opts=co?(co.agents||[]).map(a=>`<option value="${a.id}">${a.emoji} ${a.name}</option>`).join(''):'';
-    h+=`<div class="pn-add"><input id="pai-${t.id}" placeholder="하위 작업..." onkeydown="if(event.key==='Enter')planAddSubmit('${t.id}');if(event.key==='Escape')planAddCancel()"><select id="paa-${t.id}"><option value="">담당</option>${opts}</select><button onclick="planAddSubmit('${t.id}')" style="background:var(--accent);color:white">↵</button><button onclick="planAddCancel()" style="background:var(--card);color:var(--dim)">✕</button></div>`;
+    h+=`<div class="pn-add"><input id="pai-${t.id}" placeholder="${_e(window.t('plan.sub_ph'))}" onkeydown="if(event.key==='Enter')planAddSubmit('${t.id}');if(event.key==='Escape')planAddCancel()"><select id="paa-${t.id}"><option value="">${_e(window.t('plan.assignee'))}</option>${opts}</select><button onclick="planAddSubmit('${t.id}')" style="background:var(--accent);color:white">↵</button><button onclick="planAddCancel()" style="background:var(--card);color:var(--dim)">✕</button></div>`;
   }
 
   if(hasKids&&!collapsed){
@@ -695,7 +696,7 @@ async function planAddSubmit(pid){
   const title=(inp?.value||'').trim();if(!title){planAddCancel();return}
   _planAddPar=null;
   try{const r=await fetch(`/api/plan-task-add/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,parent_id:pid||null,agent_id:sel?.value||'',status:'todo'})});
-    const d=await r.json();if(d.ok){_planTasks.push(d.task);renderPlan()}else toast('추가 실패')}catch(e){toast('오류')}
+    const d=await r.json();if(d.ok){_planTasks.push(d.task);renderPlan()}else toast(t('toast.add_fail'))}catch(e){toast(t('toast.generic_error'))}
 }
 async function planCycle(id){
   const t=_planTasks.find(x=>x.id===id);if(!t)return;
@@ -729,7 +730,7 @@ async function createCo(){
       _watchAgentReady(r.company.id,agentCount);
     }else toast(t('toast.create_fail'));
   }catch(e){toast(t('toast.create_error'))}
-  if(btn){btn.disabled=false;btn.textContent='생성'}
+  if(btn){btn.disabled=false;btn.textContent=t('create_button_label')}
 }
 function _watchAgentReady(cid,total){
   let _interval=setInterval(async()=>{
@@ -762,6 +763,7 @@ async function delCo(id,name){
   }catch(e){toast(t('toast.delete_error'))}
 }
 function fp(n,r,e){$('a-name').value=n;$('a-role').value=r;$('a-emoji').value=e}
+function fpKey(n,roleKey,e){fp(n,t(roleKey),e)}
 async function openAgent(){
   const s=$('a-parent'),c=cos.find(x=>x.id===cur);s.innerHTML='<option value="">리더 직속</option>';
   if(c)(c.agents||[]).forEach(a=>s.innerHTML+=`<option value="${a.id}">${a.emoji} ${a.name}</option>`);
@@ -770,10 +772,10 @@ async function openAgent(){
   $('agent-modal').classList.add('show');
 }
 async function addAgent(){
-  const n=$('a-name').value.trim(),r=$('a-role').value.trim();if(!n||!r)return alert('이름과 역할 입력');
-  toast(n+' 생성 중...');
+  const n=$('a-name').value.trim(),r=$('a-role').value.trim();if(!n||!r)return alert(t('modal.agent_validation'));
+  toast('⏳ '+n);
   try{const res=await(await fetch(`/api/agent-add/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,role:r,emoji:$('a-emoji').value,parent_agent:$('a-parent').value,model:$('a-model').value})})).json();
-    if(res.ok){toast(n+' 추가됨');$('agent-modal').classList.remove('show');refresh()}}catch(e){toast('오류')}
+    if(res.ok){toast(t('toast.agent_added',{name:n}));$('agent-modal').classList.remove('show');refresh()}}catch(e){toast(t('toast.generic_error'))}
 }
 function dl(){if(cur)window.open('/api/download/'+cur)}
 
@@ -849,7 +851,7 @@ function connectSSE(){
       if(m.type==='agent'&&m.from){
         const ag=(c.agents||[]).find(a=>a.name===m.from);
         if(ag)pushSpeech(ag.id,m.text||'',m.from,ag.emoji||'🤖',m.time||'');
-        if((m.text||'').includes('외주')||(m.text||'').includes('outsourc'))notify('🔗 외주 결과',m.from+': '+(m.text||'').substring(0,60));
+        if((m.text||'').includes('외주')||(m.text||'').includes('outsourc'))notify(t('notif.outsource_title'),m.from+': '+(m.text||'').substring(0,60));
       }
     });
     chatMessages=chat;
