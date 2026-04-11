@@ -100,3 +100,51 @@ def test_has_system_command():
 def test_has_mention():
     assert has_mention("@CEO hello") is True
     assert has_mention("hello") is False
+
+
+# ─── Unified [TASK:verb:args] format ───
+def test_unified_task_add():
+    r = parse_task_add("[TASK:add:홈페이지 제작:high]")
+    assert r == [{'title': '홈페이지 제작', 'priority': 'high'}]
+
+
+def test_unified_task_done():
+    assert parse_task_done("[TASK:done:홈페이지 제작]") == ['홈페이지 제작']
+
+
+def test_unified_task_start():
+    assert parse_task_start("[TASK:start:DB 설계]") == ['DB 설계']
+
+
+def test_unified_task_block():
+    r = parse_task_block("[TASK:block:로그인:OAuth 키 미발급]")
+    assert r == [{'title': '로그인', 'reason': 'OAuth 키 미발급'}]
+
+
+def test_unified_cron_add():
+    r = parse_cron_add("[CRON:add:일일보고:60:오늘 진행 상황 정리]")
+    assert r == [{'title': '일일보고', 'interval': 60, 'prompt': '오늘 진행 상황 정리'}]
+
+
+def test_unified_cron_del():
+    assert parse_cron_del("[CRON:del:일일보고]") == ['일일보고']
+
+
+def test_unified_and_legacy_mixed():
+    """Both formats can coexist in the same response."""
+    text = "[TASK_ADD:Old:high] and [TASK:add:New:low]"
+    r = parse_task_add(text)
+    assert len(r) == 2
+    assert r[0]['title'] == 'Old'
+    assert r[1]['title'] == 'New'
+
+
+def test_unified_has_command():
+    assert has_system_command("[TASK:add:foo:high]") is True
+    assert has_system_command("[CRON:del:foo]") is True
+
+
+def test_unified_task_add_default_priority():
+    """Priority is optional in unified format."""
+    r = parse_task_add("[TASK:add:Quick task]")
+    assert r == [{'title': 'Quick task', 'priority': 'normal'}]
