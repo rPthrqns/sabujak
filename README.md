@@ -12,8 +12,8 @@
 ## Quick Start
 
 ```bash
-git clone https://github.com/rPthrqns/ai-company-hub.git
-cd ai-company-hub
+git clone https://github.com/rPthrqns/sabujak.git
+cd sabujak
 pip install -r requirements.txt
 
 python3 -u dashboard/server.py
@@ -275,7 +275,7 @@ python3 -u dashboard/server.py
 ## 프로젝트 구조
 
 ```
-ai-company-hub/
+sabujak/
 ├── dashboard/
 │   ├── server.py            # FastAPI 서버 (~5100줄, 100+ 엔드포인트)
 │   ├── db.py                # SQLite 회사별 샤딩 (~1600줄)
@@ -329,17 +329,17 @@ ai-company-hub/
 
 ```bash
 # 시작
-nohup python3 -u dashboard/server.py > /tmp/ai-company-hub.log 2>&1 &
+nohup python3 -u dashboard/server.py > /tmp/sabujak.log 2>&1 &
 
 # 재시작
 pkill -f 'python3.*server.py'; sleep 2
-nohup python3 -u dashboard/server.py > /tmp/ai-company-hub.log 2>&1 &
+nohup python3 -u dashboard/server.py > /tmp/sabujak.log 2>&1 &
 
 # 상태 확인
 curl -s http://localhost:3000/api/companies | python3 -m json.tool
 
 # 로그
-tail -f /tmp/ai-company-hub.log
+tail -f /tmp/sabujak.log
 ```
 
 ## 테스트
