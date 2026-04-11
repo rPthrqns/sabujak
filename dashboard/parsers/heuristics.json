@@ -1,0 +1,44 @@
+{
+  "prep_patterns": {
+    "ko": [
+      "파악하겠",
+      "확인하겠",
+      "상황을 파악",
+      "상황부터",
+      "먼저 현재",
+      "검토하겠",
+      "분석하겠",
+      "살펴보겠",
+      "조사하겠",
+      "정리하겠",
+      "계획을 세우",
+      "방안을 마련"
+    ],
+    "en": [
+      "check",
+      "assess",
+      "analyze first",
+      "let me",
+      "i will look",
+      "i will check"
+    ],
+    "ja": [
+      "確認します",
+      "把握します",
+      "分析します",
+      "調べます"
+    ],
+    "zh": [
+      "我会检查",
+      "让我看看",
+      "我会分析"
+    ]
+  },
+  "category_keywords": {
+    "design": ["디자인", "ui", "ux", "시안", "로고", "이미지", "design", "logo", "wireframe", "mockup", "프로토"],
+    "market": ["마케팅", "홍보", "sns", "광고", "seo", "콘텐츠", "브랜딩", "marketing", "branding", "content", "ads", "고객", "캠페인"],
+    "dev": ["코딩", "개발", "api", "서버", "프론트", "백엔드", "db", "배포", "frontend", "backend", "deploy", "server", "database", "coding", "버그", "테스트", "구현"],
+    "ops": ["운영", "인사", "재무", "예산", "비용", "법률", "채용", "hr", "finance", "budget", "legal", "policy", "급여"],
+    "plan": ["기획", "전략", "분석", "리서치", "조사", "계획", "planning", "strategy", "research", "analysis", "보고", "정리"]
+  }
+}

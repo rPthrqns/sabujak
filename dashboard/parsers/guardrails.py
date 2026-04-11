@@ -1,15 +1,33 @@
 """Pure guardrail validators (no DB / LLM).
 
 Used by server.nudge_agent() to decide if an agent response is acceptable.
+PREP_PATTERNS are loaded from heuristics.json with a hardcoded fallback.
 """
+import json
+from pathlib import Path
 from .commands import has_system_command, has_mention
 
-PREP_PATTERNS = [
+_DEFAULT_PREP = [
     '파악하겠', '확인하겠', '상황을 파악', '상황부터', '먼저 현재',
     'check', 'assess', 'analyze first', 'let me',
     '검토하겠', '분석하겠', '살펴보겠', '조사하겠', '정리하겠',
     '계획을 세우', '방안을 마련',
 ]
+
+
+def _load_prep_patterns():
+    try:
+        path = Path(__file__).parent / 'heuristics.json'
+        data = json.loads(path.read_text(encoding='utf-8'))
+        flat = []
+        for lang_words in data.get('prep_patterns', {}).values():
+            flat.extend(lang_words)
+        return flat or _DEFAULT_PREP
+    except (OSError, json.JSONDecodeError):
+        return _DEFAULT_PREP
+
+
+PREP_PATTERNS = _load_prep_patterns()
 
 
 def is_prep_only(text, max_len=150):
