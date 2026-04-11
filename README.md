@@ -196,8 +196,9 @@ python3 -u dashboard/server.py
 
 ## 에이전트 커맨드
 
-에이전트가 응답에 포함시켜 시스템을 제어합니다:
+에이전트가 응답에 포함시켜 시스템을 제어합니다. **두 가지 포맷 모두 지원**:
 
+### Legacy 포맷 (현재 프롬프트가 사용)
 ```
 [TASK_ADD:작업명:high]                — 칸반에 작업 추가
 [TASK_START:작업명]                   — 작업 시작
@@ -207,6 +208,18 @@ python3 -u dashboard/server.py
 [CRON_ADD:이름:간격(분):프롬프트]      — 반복 작업 등록
 [CRON_DEL:이름]                      — 반복 작업 삭제
 ```
+
+### 통합 포맷 (옵션)
+```
+[TASK:add:작업명:high]
+[TASK:start:작업명]
+[TASK:done:작업명]
+[TASK:block:작업명:사유]
+[CRON:add:이름:간격:프롬프트]
+[CRON:del:이름]
+```
+
+두 포맷이 같은 응답 안에서 혼용 가능합니다.
 
 ## API
 
@@ -262,25 +275,50 @@ python3 -u dashboard/server.py
 ```
 ai-company-hub/
 ├── dashboard/
-│   ├── server.py          # FastAPI 서버 (~5000줄)
-│   │                      #   에이전트 통신/가드레일/에스컬레이션
-│   │                      #   계획 트리 자동 생성, 메모리 스트림
-│   │                      #   100+ API 엔드포인트
-│   ├── db.py              # SQLite 회사별 샤딩 (~1550줄)
-│   ├── index.html         # SPA 대시보드 UI
-│   │                      #   아이콘 사이드바 + 채팅 (MD→HTML)
-│   │                      #   계획 트리 오버레이
-│   ├── config.json        # 에이전트 템플릿 & 토픽 설정
-│   ├── i18n/              # 다국어 UI 문자열
+│   ├── server.py            # FastAPI 서버 (~5100줄, 100+ 엔드포인트)
+│   ├── db.py                # SQLite 회사별 샤딩 (~1600줄)
+│   ├── pool.py              # DB 커넥션 풀
+│   │
+│   ├── index.html           # SPA 셸 (170줄, 외부 자산 참조만)
+│   ├── app.css              # 스타일시트 (220줄)
+│   ├── app.js               # 프론트엔드 로직 (812줄)
+│   │
+│   ├── config.py            # 매직 넘버/타임아웃 중앙화 (env 오버라이드)
+│   ├── logger.py            # 중앙 로깅 어댑터
+│   ├── observability.py     # request_id, 프롬프트 덤프
+│   │
+│   ├── parsers/             # 순수 파서 (DB 의존성 없음, 단위 테스트 가능)
+│   │   ├── commands.py      #   [TASK_*], [APPROVAL:], [CRON_*] + 통합 [TASK:add:]
+│   │   ├── guardrails.py    #   준비 발언 판정, 액션 필수 체크
+│   │   ├── categories.py    #   작업 카테고리 분류 (5개)
+│   │   └── heuristics.json  #   prep 키워드 + 카테고리 키워드 외부 설정
+│   │
+│   ├── prompts/
+│   │   └── welcome.py       # 다국어 환영 메시지 (ko/en/ja/zh)
+│   │
+│   ├── config.json          # 에이전트 템플릿 & 토픽 설정
+│   ├── i18n/                # 다국어 UI 문자열
+│   │   ├── en.json
+│   │   └── ko.json
 │   └── runtime/
-│       ├── base.py        # AgentRuntime ABC
-│       └── openclaw.py    # OpenClaw CLI (JSONL 폴링)
-├── data/                  # 회사 데이터 (.gitignored)
-│   ├── hub.db             # 메타 DB
+│       ├── base.py          # AgentRuntime ABC
+│       └── openclaw.py      # OpenClaw CLI 런타임 (JSONL 폴링)
+│
+├── tests/                   # pytest 단위 테스트 (47개)
+│   ├── conftest.py
+│   ├── test_command_parser.py    # 28개 (legacy + 통합 DSL)
+│   ├── test_guardrails.py        # 11개
+│   ├── test_categories.py        # 6개
+│   └── test_welcome.py           # 3개
+│
+├── data/                    # 회사 데이터 (.gitignored)
+│   ├── hub.db               # 메타 DB
 │   └── {company-id}/
-│       ├── company.db     # 회사별 SQLite (20+ 테이블)
-│       ├── _shared/       # 결과물, 공유 파일
-│       └── workspaces/    # 에이전트별 워크스페이스
+│       ├── company.db       # 회사별 SQLite (20+ 테이블)
+│       ├── _shared/         # 결과물, 공유 파일
+│       └── workspaces/      # 에이전트별 워크스페이스
+│
+├── pytest.ini
 ├── requirements.txt
 └── README.md
 ```
@@ -302,10 +340,47 @@ curl -s http://localhost:3000/api/companies | python3 -m json.tool
 tail -f /tmp/ai-company-hub.log
 ```
 
+## 테스트
+
+순수 파서/가드레일/카테고리 로직은 DB 의존성 없이 단위 테스트됩니다 (47개).
+
+```bash
+pytest                       # 전체 실행
+pytest tests/test_command_parser.py -v   # 커맨드 파서만
+```
+
+## 환경변수
+
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `PORT` | `3000` | 서버 포트 |
+| `DATA_DIR` | `data/` | 회사 데이터 디렉토리 |
+| `OPENCLAW_MODEL` | `zai/glm-5` | 에이전트 LLM 모델 |
+| `AGENT_TIMEOUT` | `180` | 에이전트 호출 타임아웃 (초) |
+| `AGENT_RETRY_TIMEOUT` | `120` | 재시도 타임아웃 |
+| `MAX_CONCURRENT` | `5` | 동시 실행 에이전트 수 |
+| `AGENT_QUEUE_MAX` | `10` | 에이전트당 큐 최대 크기 |
+| `LOG_LEVEL` | `INFO` | 로그 레벨 (DEBUG/INFO/WARNING/ERROR) |
+| `LOG_FILE` | (없음) | 로그 파일 경로 (지정 시 회전 로그) |
+| `DEBUG_PROMPTS` | `0` | `1`이면 nudge 호출 시 프롬프트+응답을 파일로 덤프 |
+| `PROMPT_DUMP_DIR` | `/tmp/aichub-prompts` | 덤프 저장 경로 |
+
+## 관측성
+
+- **request_id**: 모든 HTTP 응답에 `X-Request-Id` 헤더 자동 부여
+  ```bash
+  curl -sD - http://localhost:3000/api/companies | grep -i request-id
+  # x-request-id: c82aafd0d801
+  ```
+- **프롬프트 덤프**: `DEBUG_PROMPTS=1` 시 `/tmp/aichub-prompts/`에 마크다운 형식으로 저장
+  - 파일명: `{timestamp}_nudge_{agent_id}.md`
+  - 내용: 전체 프롬프트 + 에이전트 응답
+
 ## 요구 사항
 - Python 3.12+
 - [OpenClaw](https://openclaw.io) (에이전트 런타임)
 - LLM API 키
+- (선택) `pytest` — 단위 테스트 실행 시
 
 ## License
 MIT
