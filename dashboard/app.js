@@ -1059,7 +1059,55 @@ document.addEventListener('DOMContentLoaded',async()=>{
 });
 load();connectSSE();
 
-// ─── PWA Service Worker ───
+// ─── PWA Service Worker + Install Prompt ───
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('/sw.js').catch(()=>{});
 }
+
+let _installPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();
+  _installPrompt=e;
+  showInstallBtn();
+});
+
+function showInstallBtn(){
+  // Don't show if already installed (standalone mode)
+  if(window.matchMedia('(display-mode:standalone)').matches)return;
+  const existing=$('pwa-install');
+  if(existing)return;
+  const btn=document.createElement('button');
+  btn.id='pwa-install';
+  btn.textContent='📲 Install App';
+  btn.style.cssText='position:fixed;bottom:90px;right:12px;z-index:999;background:linear-gradient(135deg,#7c3aed,#3b82f6);color:#fff;border:none;border-radius:12px;padding:8px 14px;font-size:11px;font-weight:600;cursor:pointer;box-shadow:0 4px 16px rgba(59,130,246,.4);animation:fadeIn .3s';
+  btn.onclick=async()=>{
+    if(_installPrompt){
+      _installPrompt.prompt();
+      const r=await _installPrompt.userChoice;
+      if(r.outcome==='accepted')btn.remove();
+      _installPrompt=null;
+    }
+  };
+  document.body.appendChild(btn);
+  // Auto-hide after 30s
+  setTimeout(()=>{if(btn.parentElement)btn.remove()},30000);
+}
+
+// iOS Safari: detect and show manual instruction
+window.addEventListener('DOMContentLoaded',()=>{
+  const isIOS=/iPhone|iPad|iPod/.test(navigator.userAgent);
+  const isSafari=/Safari/.test(navigator.userAgent)&&!/Chrome/.test(navigator.userAgent);
+  const isStandalone=window.matchMedia('(display-mode:standalone)').matches||window.navigator.standalone;
+  if(isIOS&&isSafari&&!isStandalone){
+    // Show only once per session
+    if(sessionStorage.getItem('ios-install-shown'))return;
+    sessionStorage.setItem('ios-install-shown','1');
+    setTimeout(()=>{
+      const tip=document.createElement('div');
+      tip.style.cssText='position:fixed;bottom:90px;left:12px;right:12px;z-index:999;background:#1e293b;border:1px solid #334155;border-radius:12px;padding:12px 16px;font-size:11px;color:var(--text);box-shadow:0 4px 24px rgba(0,0,0,.5);animation:fadeIn .3s';
+      tip.innerHTML='📲 <b>Install as App:</b> Tap <span style="font-size:14px">□↑</span> (Share) → "Add to Home Screen"<button onclick="this.parentElement.remove()" style="float:right;background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px">✕</button>';
+      document.body.appendChild(tip);
+      setTimeout(()=>{if(tip.parentElement)tip.remove()},15000);
+    },3000);
+  }
+});
