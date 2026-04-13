@@ -4,7 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title data-i18n="app.title">Sabujak</title>
-<link rel="stylesheet" href="/app.css?v=5">
+<link rel="stylesheet" href="/app.css?v=6">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#3b82f6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sabujak">
 </head>
 <body>
 
@@ -62,11 +67,18 @@
 
 <!-- Bottom: command bar -->
 <div class="bottom-bar" id="bottom-bar" style="display:none">
+  <!-- Mobile-only drawer icons (hidden on desktop via CSS) -->
+  <div class="mobile-drawer-row" style="display:none">
+    <button onclick="toggleDrawer('tasks')">📋</button>
+    <button onclick="toggleDrawer('approvals')" style="position:relative">🔔</button>
+    <button onclick="openPlan()">🗂️</button>
+    <button onclick="toggleDrawer('files')">📂</button>
+    <button onclick="toggleDrawer('comms')">💬</button>
+  </div>
   <div class="cmd-bar" id="cmd-bar">
     <div class="cmd-normal" id="cmd-normal">
       <input type="file" id="file-input" style="display:none" onchange="uploadFile(this)" accept="image/*,.pdf,.md,.txt,.json,.csv,.zip">
       <button onclick="$('file-input').click()" data-i18n-attr="title:cmd.attach" style="background:var(--card);border:1px solid #374151;border-radius:10px;padding:8px 12px;cursor:pointer;font-size:12px;color:var(--dim)" title="Attach file">📎</button>
-      <button onclick="toggleMobileMenu()" class="mobile-menu-btn" style="display:none;background:var(--card);border:1px solid #374151;border-radius:10px;padding:8px 10px;cursor:pointer;font-size:12px;color:var(--dim)">≡</button>
       <input class="cmd-input" id="cmd-input" data-i18n-attr="placeholder:cmd.placeholder" placeholder="@agent enter instruction..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}">
       <button class="cmd-send" id="cmd-send-btn" onclick="send()">⏎</button>
     </div>
@@ -193,6 +205,6 @@
   </div>
 </div>
 
-<script src="/app.js?v=5"></script>
+<script src="/app.js?v=6"></script>
 </body>
 </html>

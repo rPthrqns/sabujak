@@ -1058,3 +1058,8 @@ document.addEventListener('DOMContentLoaded',async()=>{
   initNotif();
 });
 load();connectSSE();
+
+// ─── PWA Service Worker ───
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}
