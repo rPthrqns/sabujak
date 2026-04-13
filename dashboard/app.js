@@ -345,10 +345,10 @@ function directMsg(name){const i=$('cmd-input');i.value='@'+name+' ';i.focus()}
 function _setCmdBarLock(locked,msg){
   const inp=$('cmd-input'),btn=$('cmd-send-btn');
   if(locked){
-    if(inp){inp.disabled=true;inp.placeholder=msg||'⏳ 준비 중...';inp.style.opacity='.4'}
+    if(inp){inp.disabled=true;inp.placeholder=msg||t('cmd.bar_locked');inp.style.opacity='.4'}
     if(btn){btn.disabled=true;btn.style.opacity='.4'}
   }else{
-    if(inp){inp.disabled=false;inp.placeholder='@에이전트 지시사항 입력...';inp.style.opacity=''}
+    if(inp){inp.disabled=false;inp.placeholder=t('cmd.placeholder');inp.style.opacity=''}
     if(btn){btn.disabled=false;btn.style.opacity=''}
   }
 }

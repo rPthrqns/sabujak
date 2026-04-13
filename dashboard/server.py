@@ -429,7 +429,9 @@ def _auto_update_plan(cid, agent_id, text):
             added += 1
 
     # 2. 완료 키워드 감지 → 기존 작업 done 처리
-    plan_patterns = _get_patterns('ko')  # TODO: get from company lang
+    company = get_company(cid)
+    plan_lang = company.get('lang', 'ko') if company else 'ko'
+    plan_patterns = _get_patterns(plan_lang)
     done_patterns = re.findall(plan_patterns['plan_done'], text)
     if done_patterns:
         # Mark this agent's in-progress tasks as done
