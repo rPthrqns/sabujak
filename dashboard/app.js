@@ -61,10 +61,23 @@ async function checkLang(){
   // Always try to load English as fallback
   if(!UI.en||!Object.keys(UI.en).length)await loadLang('en');
   if(!localStorage.getItem('hub-lang')){
-    // First visit — no skip button
+    // New device — but if server already has companies, auto-detect lang from first company
+    try{
+      const companies=await(await fetch('/api/companies')).json();
+      if(companies.length&&companies[0].lang){
+        const autoLang=companies[0].lang;
+        localStorage.setItem('hub-lang',autoLang);
+        lang=autoLang;
+        await loadLang(lang);
+        o.style.display='none';
+        applyI18n();
+        return;
+      }
+    }catch(e){}
+    // Truly first visit (no companies) — show language overlay
     o.style.display='flex';
     if(skip)skip.style.display='none';
-    applyI18n();  // at least translate the overlay itself
+    applyI18n();
     return;
   }
   o.style.display='none';
