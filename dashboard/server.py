@@ -1662,6 +1662,8 @@ def create_company(name, topic, lang="ko"):
             return _done
         register_agent(agent_id, agent_workspace, agent_name, agent_role, name, agent_emoji,
                        lang=lang, wait=False, on_done=make_done_callback(company_id, aid, len(org), lang), company_id=company_id)
+        # LLM generates role+company-specific SOUL.md (background thread)
+        _generate_custom_soul(agent_id, agent_workspace, agent_name, agent_role, name, topic, lang)
         agents.append({
             "id": aid, "agent_id": agent_id, "name": agent_name, "emoji": agent_emoji,
             "role": agent_role, "status": "registering",
@@ -3510,9 +3512,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         agent_workspace = DATA / cid / "workspaces" / aid
         company_lang = company.get('lang', 'ko')
         register_agent(agent_id, agent_workspace, name, role, company.get('name',''), emoji, lang=company_lang, wait=True, company_id=cid)
-        # Generate role-specific SOUL.md via LLM for custom agents (not in default templates)
-        if aid not in AGENT_TEMPLATES:
-            _generate_custom_soul(agent_id, agent_workspace, name, role, company.get('name',''), company.get('topic',''), company_lang)
+        # Generate role-specific SOUL.md via LLM (all agents, not just custom)
+        _generate_custom_soul(agent_id, agent_workspace, name, role, company.get('name',''), company.get('topic',''), company_lang)
         agent = {
             "id": aid, "agent_id": agent_id, "name": name, "emoji": emoji,
             "role": role, "status": "active",
