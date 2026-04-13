@@ -62,20 +62,25 @@ Every agent response is validated by a **guardrail** — responses without `@men
                          🗂️ Plan / 📂 Files
 ```
 
-- **Left sidebar** — agent icons with per-state visual cues
-- **Right main** — chat area (markdown → HTML rendered)
+- **Left sidebar** — agent icons with per-state visual cues + cost labels + ■ stop button (when busy)
+- **Right main** — chat area (markdown → HTML rendered) with delegation chain tags
 - **Bottom** — command bar + file attach (📎) + approval approve/reject mode
-- **Side drawer** — Tasks, Approvals, Plan Tree, Files (with image previews)
+- **Side drawer** — Tasks, Approvals, Plan Tree, Files (with previews), Agent Comms
+- **📊 Dashboard** — multi-company overview (header button)
+- **🧠 Persona** — double-click any agent icon to customize their personality
+- **📲 PWA** — installable as a home screen app on mobile
 
 ### Agent Icon States
 
 | State | Visual |
 |-------|--------|
-| Working | Blue border + pulsing glow |
-| Thinking | Yellow border + rapid pulse + blinking dot |
+| Working | Blue border + pulsing glow + ■ stop button |
+| Thinking | Yellow border + rapid pulse + blinking dot + ■ stop button |
 | Idle (active) | Green border (online) |
 | Inactive | Gray + semi-transparent |
 | Registering | Purple dashed + spinning |
+
+Each icon also shows a **cost label** (`$0.0177`) and supports **double-click to edit persona**.
 
 ### Chat Rendering
 
@@ -131,15 +136,20 @@ Press the 🗂️ button for a full-screen overlay:
 | **System commands** | `[TASK_ADD:]`, `[TASK_DONE:]`, `[APPROVAL:]`, `[CRON_ADD:]` + unified `[TASK:add:]` form |
 | **Guardrails** | Every reply must contain an @mention or system command — prep talk is rejected and retried |
 | **Memory Stream** | Stanford GenAgents pattern: recency × importance × relevance |
-| **Cost tracking** | Per-agent token usage and cost monitoring |
+| **Agent stop** | ■ button to kill a running agent mid-task (clears queue + kills process) |
+| **Agent persona** | Double-click icon → edit personality notes → injected into SOUL.md |
+| **Cost tracking** | Per-agent cost label on icons + header stats |
 | **Real-time SSE** | Live updates via Server-Sent Events |
 
 ### Communication
 | Feature | Description |
 |---------|-------------|
 | **Chat** | Markdown rendering, real-time conversation display |
+| **Delegation chains** | `@mentions` in agent messages show visual `→ 🤖CTO` tags |
+| **Agent comms** | 💬 drawer tab filtering agent-to-agent internal messages only |
 | **File upload** | 📎 button for images/docs, forwarded to agents |
-| **Image serving** | PNG/JPG returned with correct MIME + inline previews |
+| **File previews** | .md rendered as HTML, .json formatted, code files with syntax view |
+| **Image serving** | PNG/JPG returned with correct MIME + inline thumbnails |
 | **Outsourcing** | Cross-company delegation (Company A → Company B) |
 | **Full-text search** | Search the entire chat history |
 
@@ -162,6 +172,7 @@ Press the 🗂️ button for a full-screen overlay:
 | **Wiki** | Categorized knowledge base (SOP, Guide, Decision, Reference) |
 | **Risk register** | Severity-sorted risks with mitigation plans |
 | **Audit log** | Full action trail |
+| **Multi-company dashboard** | 📊 button → overview cards with agent count, task progress, cost per company |
 | **i18n (LLM-powered)** | Type any language on first visit — LLM translates UI, roles, welcome messages in one bundle |
 
 ## Internationalization (i18n)
@@ -180,6 +191,32 @@ Sabujak has first-class support for any language:
 
 Supported by default: Korean, English, Japanese, Chinese.
 Any other language is auto-generated on demand.
+
+## Mobile & PWA
+
+Sabujak is fully responsive and installable as a Progressive Web App:
+
+### Responsive Layout (≤640px)
+```
+┌─────────────────────────┐
+│ 🏢 Sabujak  🔍🔔🌍🤖🔗│  ← header
+├─────────────────────────┤
+│ [Company A] [Company B] │  ← tabs (horizontal scroll)
+├─────────────────────────┤
+│ 👔 📈 💻 🎨            │  ← agent strip
+├─────────────────────────┤
+│     Chat area            │  ← scrollable
+├─────────────────────────┤
+│ 📋 🔔 🗂️ 📂 💬         │  ← drawer icons
+│ [📎] @input...     [⏎]  │  ← command bar
+└─────────────────────────┘
+```
+
+### Install as App
+- **Android Chrome**: in-app `📲 Install App` button appears automatically (via `beforeinstallprompt`)
+- **iOS Safari**: tooltip guides user to Share → Add to Home Screen
+- Installed app runs in **standalone mode** (no browser chrome)
+- `manifest.json` + service worker included
 
 ## Architecture
 
@@ -261,6 +298,8 @@ Both formats can coexist in the same response.
 | `/api/agent-add/{cid}` | POST | Add agent `{name, role, emoji}` |
 | `/api/agent-delete/{cid}/{aid}` | POST | Delete agent |
 | `/api/agent-reactivate/{cid}/{aid}` | POST | Reactivate agent |
+| `/api/agent-stop/{cid}/{aid}` | POST | Stop running agent (kill process, clear queue) |
+| `/api/agent-persona/{cid}/{aid}` | GET/POST | Get/set agent personality notes (→ SOUL.md) |
 | `/api/models` | GET | Available LLM models |
 
 ### Work Management
@@ -307,8 +346,10 @@ sabujak/
 │   ├── pool.py              # DB connection pool
 │   │
 │   ├── index.html           # SPA shell (references external CSS/JS)
-│   ├── app.css              # Stylesheet (~220 lines, incl. RTL overrides)
-│   ├── app.js               # Frontend logic (~850 lines)
+│   ├── app.css              # Stylesheet (~300 lines, incl. RTL + mobile responsive)
+│   ├── app.js               # Frontend logic (~950 lines)
+│   ├── manifest.json        # PWA manifest (home screen install)
+│   ├── sw.js                # Service worker (PWA requirement)
 │   │
 │   ├── config.py            # Centralized magic numbers/timeouts (env overridable)
 │   ├── logger.py            # Central logging adapter
