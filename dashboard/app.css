@@ -92,6 +92,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .cm-deleg-tag{display:inline-flex;align-items:center;gap:2px;background:rgba(139,92,246,.15);color:#a78bfa;font-size:9px;padding:1px 6px;border-radius:8px;font-weight:600}
 .cm-deleg-tag::before{content:'→';color:var(--dim);margin-right:2px}
 .chat-empty{text-align:center;color:var(--dim);font-size:11px;padding:20px;margin:auto}
+/* Thread grouping */
+.chat-thread{border-left:2px solid rgba(59,130,246,.2);margin-left:20px;padding-left:8px;margin-bottom:4px}
+.chat-thread .chat-msg{max-width:90%}
+.thread-toggle{font-size:9px;color:var(--accent);cursor:pointer;padding:2px 6px;background:rgba(59,130,246,.08);border-radius:6px;border:none;margin:2px 0 2px 28px;display:inline-block}
+.thread-toggle:hover{background:rgba(59,130,246,.15)}
 
 /* Section helpers */
 .section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}

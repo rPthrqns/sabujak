@@ -395,6 +395,39 @@ def process_task_commands(cid, text, agent_id):
         results.append(f"🤝 '{hire_name}' 고용 기안 제출됨 ({hire_role})")
         print(f"[hire] {agent_id} proposed: {hire_emoji} {hire_name} ({hire_role})")
 
+    # ─ FIRE command: [FIRE:AgentName:Reason] → creates approval to dismiss agent ─
+    for m in re.finditer(r'\[FIRE:([^:]+):([^\]]+)\]', text):
+        fire_name = m.group(1).strip()
+        fire_reason = m.group(2).strip()
+        company = get_company(cid)
+        agent = next((a for a in company.get('agents',[]) if a['id']==agent_id), None) if company else None
+        agent_name_from = agent.get('name','') if agent else agent_id
+        # Check agent exists
+        target = next((a for a in company.get('agents',[]) if a.get('name','').lower()==fire_name.lower()), None) if company else None
+        if not target:
+            print(f"[fire] {fire_name} not found, skipping")
+            continue
+        if target['id'] == 'ceo':
+            print(f"[fire] cannot fire CEO, skipping")
+            continue
+        approval = {
+            'id': str(uuid.uuid4())[:8],
+            'from_agent': agent_name_from,
+            'from_emoji': agent.get('emoji','🤖') if agent else '🤖',
+            'approval_type': 'fire',
+            'category': 'hr',
+            'title': f"Dismiss {target.get('emoji','')} {fire_name}",
+            'detail': f"Reason: {fire_reason}\nProposed by: {agent_name_from}\n\nApprove to remove this agent.",
+            'fire_agent_id': target['id'],
+            'fire_agent_name': fire_name,
+            'status': 'pending',
+            'time': datetime.now().strftime('%H:%M'),
+            'created_at': datetime.now().isoformat(),
+        }
+        append_approval(cid, approval)
+        results.append(f"🔥 '{fire_name}' 해고 기안 제출됨 ({fire_reason})")
+        print(f"[fire] {agent_id} proposed firing: {fire_name} ({fire_reason})")
+
     # 자동 작업 감지: [TASK_XXX] 명령이 없을 때 패턴 기반 자동 추가
     has_task_cmd = bool(re.search(r'\[TASK_', text))
     if not has_task_cmd:
@@ -1640,8 +1673,9 @@ def _build_soul_protocol(lang='en') -> str:
 - `[CRON_ADD:name:minutes:prompt]` — {p.get('cron_add', 'create recurring task')}
 - `[CRON_DEL:name]` — {p.get('cron_del', 'delete recurring task')}
 
-### Hiring (CEO/Leaders only)
+### Team Management (CEO/Leaders only)
 - `[HIRE:Name:Role:Emoji]` — propose a new team member (requires master approval)
+- `[FIRE:Name:Reason]` — propose dismissing a team member (requires master approval)
 
 ## {p.get('rules_title', 'Rules (ABSOLUTE — no exceptions)')}
 - {p.get('rule_immediate', 'Execute tasks IMMEDIATELY. No prep talk.')}
@@ -3891,6 +3925,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         print(f"[hire] approved: {add_emoji} {add_name} ({add_role})")
                     else:
                         print(f"[approval] could not parse agent from: {approval}")
+            # If agent dismissal was approved, remove the agent
+            if resolution == 'approved' and approval.get('approval_type') == 'fire':
+                company = get_company(cid)
+                fire_aid = approval.get('fire_agent_id', '')
+                if company and fire_aid:
+                    fire_agent_id = f"{cid}-{fire_aid}"
+                    # Remove from company agents list
+                    company['agents'] = [a for a in company['agents'] if a['id'] != fire_aid]
+                    update_company(cid, {'agents': company['agents']})
+                    # Background: kill process + unregister
+                    def _bg_fire():
+                        try:
+                            subprocess.run(['pkill', '-f', re.escape(fire_agent_id)], timeout=5)
+                        except: pass
+                        try: RUNTIME.delete(fire_agent_id)
+                        except: pass
+                        print(f"[fire] approved: {fire_aid} removed from {cid}")
+                    threading.Thread(target=_bg_fire, daemon=True).start()
+                    sse_broadcast('company_update', {'id': cid, 'company': get_company(cid)})
+
             self._json({"ok": True, "approval": approval})
         else:
             self._json({"error": "not found"}, 404)

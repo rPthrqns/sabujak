@@ -211,7 +211,8 @@ function renderIconGrid(){
     const busy=st==='working'||st==='thinking';
     const cost=a.cost?a.cost.total_cost:0;
     const costStr=cost>0?`$${cost.toFixed(4)}`:'';
-    return`<div class="agent-icon s-${st}" onclick="selectAgent('${a.id}')" ondblclick="event.preventDefault();openPersona('${a.id}')">
+    const canFire=a.id!=='ceo';
+    return`<div class="agent-icon s-${st}" onclick="selectAgent('${a.id}')" ondblclick="event.preventDefault();openPersona('${a.id}')" oncontextmenu="event.preventDefault();${canFire?`fireAgent('${a.id}')`:''}" title="${_e(a.name)} — dblclick: persona, right-click: dismiss">
       <div class="ai-circle">${a.emoji||'🤖'}<span class="ai-dot"></span></div>
       <span class="ai-name">${_e(a.name)}</span>
       ${costStr?`<span class="ai-cost">${costStr}</span>`:''}
@@ -252,6 +253,22 @@ async function stopAgent(aid){
     if(d.ok)toast('⏹ '+aid+' stopped');
   }catch(e){}
   refresh();
+}
+
+async function fireAgent(aid){
+  if(!cur)return;
+  const c=cos.find(x=>x.id===cur);
+  const a=c?(c.agents||[]).find(x=>x.id===aid):null;
+  if(!a)return;
+  if(aid==='ceo'){toast('CEO cannot be dismissed');return}
+  const reason=prompt(`Dismiss ${a.emoji} ${a.name}? Enter reason:`);
+  if(!reason)return;
+  // Send as chat command so CEO processes it
+  try{
+    await fetch(`/api/chat/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:`[FIRE:${a.name}:${reason}]`})});
+    toast(`🔥 ${a.name} dismissal submitted`);
+  }catch(e){toast(t('toast.generic_error'))}
 }
 
 // ─── Markdown → HTML ───
@@ -315,44 +332,82 @@ function _md(raw){
 }
 
 // ─── Chat ───
+let _threadCollapsed={};
+
+function _renderMsg(m, agentMap){
+  const isUser=m.type==='user'||m.type==='master';
+  const agent=m.from?agentMap[m.from]:null;
+  const emoji=isUser?'👤':(agent?agent.emoji||'🤖':'🤖');
+  const name=isUser?t('chat.me'):(m.from||t('chat.system'));
+  const cls=isUser?'cm-user':'cm-agent';
+  let textHtml=_md(m.text||'');
+  let delegHtml='';
+  if(!isUser&&m.text){
+    const mentions=(m.text.match(/@([A-Za-z]\w*)/g)||[]).map(x=>x.slice(1));
+    const unique=[...new Set(mentions)].filter(n=>n!==m.from&&n.toLowerCase()!=='master');
+    if(unique.length){
+      delegHtml='<div class="cm-delegation">'+unique.map(n=>{
+        const tgt=agentMap[n];
+        return`<span class="cm-deleg-tag">${tgt?tgt.emoji+' ':''}${_e(n)}</span>`;
+      }).join('')+'</div>';
+    }
+  }
+  return`<div class="chat-msg ${cls}">
+    <span class="cm-avatar">${emoji}</span>
+    <div class="cm-body">
+      <div class="cm-name">${_e(name)}</div>
+      <div class="cm-text">${textHtml}</div>
+      ${delegHtml}
+      <div class="cm-time">${m.time||''}</div>
+    </div>
+  </div>`;
+}
+
 function renderChat(){
   const el=$('chat-area');if(!el)return;
   if(!chatMessages.length){el.innerHTML=`<div class="chat-empty">${_e(t('chat.empty'))}</div>`;return}
   const c=cos.find(x=>x.id===cur);
   const agentMap={};
   (c?.agents||[]).forEach(a=>{agentMap[a.name]=a});
-  // Show last 30 messages
-  const msgs=chatMessages.slice(-30);
-  el.innerHTML=msgs.map(m=>{
+  const msgs=chatMessages.slice(-50);
+
+  // Group into threads: user msg → direct response → delegated responses
+  // A thread starts with a user/master message, all following agent messages
+  // until the next user message belong to the same thread
+  const threads=[];
+  let current=null;
+  for(const m of msgs){
     const isUser=m.type==='user'||m.type==='master';
-    const agent=m.from?agentMap[m.from]:null;
-    const emoji=isUser?'👤':(agent?agent.emoji||'🤖':'🤖');
-    const name=isUser?t('chat.me'):(m.from||t('chat.system'));
-    const cls=isUser?'cm-user':'cm-agent';
-    let textHtml=_md(m.text||'');
-    // Detect delegation targets (@mentions in agent messages)
-    let delegHtml='';
-    if(!isUser&&m.text){
-      const mentions=(m.text.match(/@([A-Za-z]\w*)/g)||[]).map(x=>x.slice(1));
-      const unique=[...new Set(mentions)].filter(n=>n!==m.from&&n.toLowerCase()!=='master');
-      if(unique.length){
-        delegHtml='<div class="cm-delegation">'+unique.map(n=>{
-          const tgt=agentMap[n];
-          return`<span class="cm-deleg-tag">${tgt?tgt.emoji+' ':''}${_e(n)}</span>`;
-        }).join('')+'</div>';
-      }
+    if(isUser||!current){
+      current={root:m,replies:[],id:threads.length};
+      threads.push(current);
+      if(!isUser)current.root=null,current.replies.push(m);
+    }else{
+      current.replies.push(m);
     }
-    return`<div class="chat-msg ${cls}">
-      <span class="cm-avatar">${emoji}</span>
-      <div class="cm-body">
-        <div class="cm-name">${_e(name)}</div>
-        <div class="cm-text">${textHtml}</div>
-        ${delegHtml}
-        <div class="cm-time">${m.time||''}</div>
-      </div>
-    </div>`;
-  }).join('');
-  // Auto-scroll to bottom
+  }
+
+  let html='';
+  threads.forEach(th=>{
+    // Root message (user command or first orphan agent msg)
+    if(th.root)html+=_renderMsg(th.root,agentMap);
+    // Replies
+    if(th.replies.length>0){
+      const tid='thread-'+th.id;
+      const collapsed=_threadCollapsed[tid]&&th.replies.length>2;
+      const showCount=collapsed?1:th.replies.length;
+      const hiddenCount=th.replies.length-showCount;
+      if(th.replies.length>2){
+        const label=collapsed?`▶ ${th.replies.length} replies`:`▼ collapse`;
+        html+=`<button class="thread-toggle" onclick="_threadCollapsed['${tid}']=!_threadCollapsed['${tid}'];renderChat()">${label}</button>`;
+      }
+      html+='<div class="chat-thread">';
+      const visible=collapsed?th.replies.slice(-1):th.replies;
+      visible.forEach(m=>html+=_renderMsg(m,agentMap));
+      html+='</div>';
+    }
+  });
+  el.innerHTML=html;
   el.scrollTop=el.scrollHeight;
 }
 
@@ -640,30 +695,50 @@ function renderDrawerComms(el){
   const c=cos.find(x=>x.id===cur);
   const agentMap={};
   (c?.agents||[]).forEach(a=>{agentMap[a.name]=a});
-  // Filter: agent messages that contain @mentions to other agents
-  const comms=chatMessages.filter(m=>{
-    if(m.type!=='agent'||!m.from)return false;
-    const mentions=(m.text||'').match(/@([A-Za-z]\w*)/g);
-    if(!mentions)return false;
-    return mentions.some(mt=>{const n=mt.slice(1);return agentMap[n]&&n!==m.from});
-  });
-  if(!comms.length){el.innerHTML='<div style="color:var(--dim);text-align:center;padding:20px;font-size:11px">No agent-to-agent messages yet</div>';return}
-  el.innerHTML=comms.slice(-30).map(m=>{
-    const fromAg=agentMap[m.from];
+  // Build conversation pairs: request(@mention) → response(from mentioned agent)
+  const agentMsgs=chatMessages.filter(m=>m.type==='agent'&&m.from);
+  const pairs=[];
+  for(let i=0;i<agentMsgs.length;i++){
+    const m=agentMsgs[i];
     const mentions=(m.text||'').match(/@([A-Za-z]\w*)/g)||[];
     const targets=[...new Set(mentions.map(x=>x.slice(1)))].filter(n=>agentMap[n]&&n!==m.from);
-    const arrow=targets.map(n=>{const ag=agentMap[n];return`${ag?ag.emoji:''} ${n}`}).join(', ');
-    const snippet=_e((m.text||'').replace(/@\w+/g,'').trim().substring(0,120));
-    return`<div style="padding:6px 8px;border-bottom:1px solid #1e293b;font-size:10px">
-      <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
-        <span>${fromAg?fromAg.emoji:'🤖'}</span>
-        <span style="font-weight:600;color:#a5b4fc">${_e(m.from)}</span>
-        <span style="color:var(--dim)">→</span>
-        <span style="color:#c4b5fd">${arrow}</span>
-        <span style="margin-left:auto;color:var(--dim);font-size:8px">${m.time||''}</span>
+    if(!targets.length)continue;
+    // Find the response: next message FROM one of the targets
+    let response=null;
+    for(let j=i+1;j<Math.min(i+10,agentMsgs.length);j++){
+      if(targets.includes(agentMsgs[j].from)){response=agentMsgs[j];break}
+    }
+    pairs.push({request:m,targets,response});
+  }
+  if(!pairs.length){el.innerHTML='<div style="color:var(--dim);text-align:center;padding:20px;font-size:11px">No agent-to-agent conversations yet</div>';return}
+  el.innerHTML=pairs.slice(-20).map(p=>{
+    const fromAg=agentMap[p.request.from];
+    const arrow=p.targets.map(n=>{const ag=agentMap[n];return`${ag?ag.emoji:''} ${n}`}).join(', ');
+    const reqSnip=_e((p.request.text||'').replace(/@\w+/g,'').trim().substring(0,100));
+    let html=`<div style="padding:8px;border-bottom:1px solid #1e293b">
+      <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">
+        <span style="font-size:14px">${fromAg?fromAg.emoji:'🤖'}</span>
+        <span style="font-weight:700;color:#a5b4fc;font-size:10px">${_e(p.request.from)}</span>
+        <span style="color:var(--dim);font-size:10px">→</span>
+        <span style="color:#c4b5fd;font-size:10px">${arrow}</span>
+        <span style="margin-left:auto;color:var(--dim);font-size:8px">${p.request.time||''}</span>
       </div>
-      <div style="color:var(--text);line-height:1.4">${snippet}${(m.text||'').length>120?'...':''}</div>
-    </div>`;
+      <div style="font-size:10px;color:#94a3b8;line-height:1.4;padding:4px 0 4px 20px;border-left:2px solid rgba(139,92,246,.3)">${reqSnip}...</div>`;
+    if(p.response){
+      const respAg=agentMap[p.response.from];
+      const respSnip=_e((p.response.text||'').replace(/@\w+/g,'').trim().substring(0,100));
+      html+=`<div style="display:flex;align-items:center;gap:4px;margin:4px 0 2px 20px">
+        <span style="color:var(--dim);font-size:9px">↩</span>
+        <span style="font-size:12px">${respAg?respAg.emoji:'🤖'}</span>
+        <span style="font-weight:600;color:var(--green);font-size:10px">${_e(p.response.from)}</span>
+        <span style="color:var(--dim);font-size:8px">${p.response.time||''}</span>
+      </div>
+      <div style="font-size:10px;color:var(--text);line-height:1.4;padding:4px 0 4px 20px;border-left:2px solid rgba(0,255,136,.3)">${respSnip}...</div>`;
+    }else{
+      html+=`<div style="font-size:9px;color:var(--dim);padding:2px 0 0 20px">⏳ awaiting response...</div>`;
+    }
+    html+=`</div>`;
+    return html;
   }).join('');
 }
 
