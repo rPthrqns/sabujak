@@ -1602,12 +1602,37 @@ def _build_soul_protocol(lang='en') -> str:
 """
 
 
+# Cache for protocol strings (avoids re-reading JSON on every call)
+_protocol_cache = {}
+
+def _get_cached_protocol(lang='en') -> str:
+    if lang not in _protocol_cache:
+        _protocol_cache[lang] = _build_soul_protocol(lang)
+    return _protocol_cache[lang]
+
+
 def _generate_custom_soul(agent_id, workspace, name, role, company_name, topic, lang):
     """Generate a hybrid SOUL.md: LLM writes the role-specific identity part,
-    server appends the fixed protocol part. This ensures system commands
-    are NEVER missing regardless of LLM output quality."""
+    server appends the fixed protocol part.
+
+    FIX: Writes protocol to SOUL.md IMMEDIATELY (sync), then LLM identity
+    is prepended when ready. This prevents the race condition where an agent
+    starts working before the LLM finishes."""
+    # STEP 1 (SYNC): Immediately write protocol-enriched SOUL.md
+    # so the agent has correct commands even before LLM identity arrives
+    protocol = _get_cached_protocol(lang)
+    lang_name = LANG.get(lang, 'Korean')
+    soul_file = workspace / "SOUL.md"
+    initial_soul = (
+        f"# SOUL.md — {name} ({role}) @ {company_name}\n\n"
+        f"You are {name} ({role}) at '{company_name}'.\n"
+        f"Respond in {lang_name}. Execute tasks immediately.\n"
+        f"{protocol}"
+    )
+    soul_file.write_text(initial_soul, encoding='utf-8')
+
+    # STEP 2 (ASYNC): LLM generates rich identity, then overwrites
     def _gen():
-        lang_name = LANG.get(lang, 'Korean')
         prompt = (
             f"Write the IDENTITY section of a SOUL.md for an AI agent.\n\n"
             f"Agent: {name}\n"
@@ -1632,26 +1657,13 @@ def _generate_custom_soul(agent_id, workspace, name, role, company_name, topic, 
                 if clean.endswith('```'):
                     clean = clean.rsplit('```', 1)[0]
                 clean = clean.strip()
-                # Compose: header + LLM identity + fixed protocol
-                soul = f"# SOUL.md — {name} ({role}) @ {company_name}\n\n{clean}\n{_build_soul_protocol(lang)}"
-                (workspace / "SOUL.md").write_text(soul, encoding='utf-8')
-                print(f"[soul-gen] {agent_id}: generated identity ({len(clean)} chars) + fixed protocol")
+                soul = f"# SOUL.md — {name} ({role}) @ {company_name}\n\n{clean}\n{protocol}"
+                soul_file.write_text(soul, encoding='utf-8')
+                print(f"[soul-gen] {agent_id}: generated identity ({len(clean)} chars) + protocol")
             else:
-                # LLM failed — just append protocol to existing default
-                soul_file = workspace / "SOUL.md"
-                if soul_file.exists():
-                    existing = soul_file.read_text(encoding='utf-8')
-                    if '## System Commands' not in existing:
-                        soul_file.write_text(existing + _build_soul_protocol(lang), encoding='utf-8')
-                print(f"[soul-gen] {agent_id}: LLM empty, appended protocol to default")
+                print(f"[soul-gen] {agent_id}: LLM empty, keeping initial+protocol")
         except Exception as e:
-            # On failure, still ensure protocol is present
-            soul_file = workspace / "SOUL.md"
-            if soul_file.exists():
-                existing = soul_file.read_text(encoding='utf-8')
-                if '## System Commands' not in existing:
-                    soul_file.write_text(existing + _build_soul_protocol(lang), encoding='utf-8')
-            print(f"[soul-gen] {agent_id}: failed ({e}), appended protocol to default")
+            print(f"[soul-gen] {agent_id}: failed ({e}), keeping initial+protocol")
     threading.Thread(target=_gen, daemon=True).start()
 
 # ── Runtime-extended role translations (filled by /api/i18n/generate) ──
@@ -3507,7 +3519,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             import signal
             for aid in agent_ids:
                 try:
-                    result = subprocess.run(['pgrep', '-f', aid], capture_output=True, text=True, timeout=5)
+                    result = subprocess.run(['pgrep', '-f', re.escape(aid)], capture_output=True, text=True, timeout=5)
                     for pid in result.stdout.strip().split('\n'):
                         if pid.strip():
                             try: os.kill(int(pid.strip()), signal.SIGTERM)
@@ -3877,7 +3889,7 @@ async def _on_startup():
 
 @app.get("/api/sse")
 async def api_sse():
-    q: asyncio.Queue = asyncio.Queue()
+    q: asyncio.Queue = asyncio.Queue(maxsize=100)  # prevent memory bloat on slow clients
     with SSE_QUEUES_LOCK:
         SSE_QUEUES.append(q)
 
@@ -3977,7 +3989,15 @@ async def api_upload_file(cid: str, request: Request):
     dest_dir = DATA / cid / '_shared' / 'deliverables'
     dest_dir.mkdir(parents=True, exist_ok=True)
     # Sanitize filename
-    safe_name = uploaded.filename.replace('/', '_').replace('\\', '_').replace('..', '_')
+    # Sanitize filename: remove path separators, null bytes, special chars, limit length
+    raw_name = uploaded.filename or 'upload'
+    safe_name = raw_name.replace('/', '_').replace('\\', '_').replace('..', '_').replace('\x00', '')
+    safe_name = re.sub(r'[<>:"|?*\x00-\x1f]', '_', safe_name)  # strip control chars
+    if safe_name.startswith('-'):
+        safe_name = '_' + safe_name
+    safe_name = safe_name[:200]  # filesystem limit guard
+    if not safe_name or safe_name.strip('.') == '':
+        safe_name = f"upload_{uuid.uuid4().hex[:8]}"
     dest = dest_dir / safe_name
     with open(dest, 'wb') as f:
         content = await uploaded.read()
@@ -4156,7 +4176,9 @@ async def api_agent_stop(cid: str, aid: str):
     killed_pids = []
     try:
         import subprocess as _sp
-        _sp.run(['pkill', '-f', f'openclaw.*{agent_id}'], timeout=5)
+        # Escape regex metacharacters in agent_id to prevent unintended matches
+        safe_id = re.escape(agent_id)
+        _sp.run(['pkill', '-f', f'openclaw.*{safe_id}'], timeout=5)
         stopped = True
     except Exception:
         pass
@@ -4990,10 +5012,20 @@ async def api_i18n_generate(request: Request):
                 lang_code = ascii_prefix or 'xx'
 
             # Extract pieces (tolerate missing sub-keys)
-            ui_strings = translated.get('ui') if isinstance(translated.get('ui'), dict) else translated
-            roles_map = translated.get('roles') if isinstance(translated.get('roles'), dict) else {}
-            welcome_tpl = translated.get('welcome') if isinstance(translated.get('welcome'), dict) else {}
-            protocol_tpl = translated.get('protocol') if isinstance(translated.get('protocol'), dict) else {}
+            # Handle both structured {ui:{...}, roles:{...}} and flat {...} responses
+            has_structure = isinstance(translated.get('ui'), dict)
+            if has_structure:
+                ui_strings = translated['ui']
+                roles_map = translated.get('roles') if isinstance(translated.get('roles'), dict) else {}
+                welcome_tpl = translated.get('welcome') if isinstance(translated.get('welcome'), dict) else {}
+                protocol_tpl = translated.get('protocol') if isinstance(translated.get('protocol'), dict) else {}
+            else:
+                # LLM returned flat dict — treat entire response as UI strings
+                ui_strings = translated
+                roles_map = {}
+                welcome_tpl = {}
+                protocol_tpl = {}
+                print(f"[i18n] WARNING: LLM returned flat dict (no ui/roles sub-keys). Only UI strings saved.")
 
             # Save UI strings
             (I18N_DIR / f"{lang_code}.json").write_text(
