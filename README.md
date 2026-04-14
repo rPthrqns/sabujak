@@ -24,15 +24,25 @@ On first visit you'll be asked to pick a language. Type any language name (e.g. 
 
 ## How It Works
 
-Create a company, give it a topic, and AI agents start working on their own:
+Create a company, give it a topic. **Only the CEO is created first** — the CEO then analyzes the topic and proposes the team:
 
 ```
-You → @CEO "Build our homepage"
-  CEO → @CTO "Handle the frontend" + @CMO "Design mockups"
-      → [TASK_ADD:Build homepage:high]
-      → [APPROVAL:purchase:Domain:need hosting fees approved]
-  CTO → (builds site, saves deliverables, reports back to CEO)
-  CMO → (ships design, reports back to CEO)
+You → Create "Acme Games" (topic: 2D MMORPG)
+  ↓
+CEO created → auto-analyzes topic → proposes team:
+  → [HIRE:CTO:Game Tech Lead:💻]
+  → [HIRE:Designer:2D Pixel Artist:🎨]
+  → [HIRE:SoundEng:Audio Design:🎵]
+  ↓
+You approve/reject each hire in the approval panel
+  ↓
+Approved agents are created with LLM-generated role-specific SOUL.md
+  ↓
+You → @CEO "Build the game"
+  CEO → @CTO "Set up server" + @Designer "Create sprites"
+      → [TASK_ADD:Build game:high]
+  CTO → (builds, reports back)
+  Designer → (creates art, saves to deliverables)
 ```
 
 Every agent response is validated by a **guardrail** — responses without `@mentions` or `[COMMAND:]` (just prep talk like "I'll check on that...") are rejected and retried with an enforcement prompt.
@@ -63,12 +73,13 @@ Every agent response is validated by a **guardrail** — responses without `@men
 ```
 
 - **Left sidebar** — agent icons with per-state visual cues + cost labels + ■ stop button (when busy)
-- **Right main** — chat area (markdown → HTML rendered) with delegation chain tags
+- **Right main** — threaded chat (messages grouped by user command → agent responses, collapsible)
 - **Bottom** — command bar + file attach (📎) + approval approve/reject mode
-- **Side drawer** — Tasks, Approvals, Plan Tree, Files (with previews), Agent Comms
+- **Side drawer** — Tasks, Approvals, Plan Tree, Files (with previews), Agent Comms (paired request↔response view)
 - **📊 Dashboard** — multi-company overview (header button)
 - **🧠 Persona** — double-click any agent icon to customize their personality
-- **📲 PWA** — installable as a home screen app on mobile
+- **🔥 Dismiss** — right-click any agent icon to propose dismissal
+- **📲 PWA** — installable as a home screen app, works offline with cached data
 
 ### Agent Icon States
 
@@ -80,19 +91,22 @@ Every agent response is validated by a **guardrail** — responses without `@men
 | Inactive | Gray + semi-transparent |
 | Registering | Purple dashed + spinning |
 
-Each icon also shows a **cost label** (`$0.0177`) and supports **double-click to edit persona**.
+Each icon also shows a **cost label** (`$0.0177`) and supports:
+- **Click** — fill @mention in command bar
+- **Double-click** — edit persona (personality notes → SOUL.md)
+- **Right-click** — propose dismissal (creates approval, requires confirmation)
+- **■ button** — stop running agent (visible when working/thinking)
 
 ### Chat Rendering
 
+Messages are **threaded**: a user command and all subsequent agent responses are grouped together. Threads with 2+ replies are collapsible (`▶ N replies` / `▼ collapse`).
+
 Agent responses are rendered from **Markdown to HTML**:
 
-- Headings (`#`, `##`, `###`)
-- Bold / italic (`**bold**`, `*italic*`)
-- Code blocks (` ```code``` `)
-- Tables (`| col | col |`)
-- Lists (ordered / unordered)
-- Blockquotes (`> quote`)
+- Headings (`#`, `##`, `###`), bold/italic, code blocks, tables
+- Lists, blockquotes, horizontal rules
 - Links, images, @mention highlighting
+- Delegation tags (`→ 🤖CTO`) shown below messages that @mention other agents
 
 ### Plan Tree
 
@@ -139,15 +153,17 @@ Press the 🗂️ button for a full-screen overlay:
 | **Agent stop** | ■ button to kill a running agent mid-task (clears queue + kills process) |
 | **Agent persona** | Double-click icon → edit personality notes → injected into SOUL.md |
 | **SOUL generation** | Every agent gets an LLM-generated role+company-specific SOUL.md on hire |
+| **Agent dismissal** | Right-click icon or `[FIRE:Name:Reason]` → approval → agent removed |
+| **CEO-first hiring** | Only CEO created initially; CEO proposes team via `[HIRE:]` commands |
 | **Cost tracking** | Per-agent cost label on icons + header stats |
 | **Real-time SSE** | Live updates via Server-Sent Events |
 
 ### Communication
 | Feature | Description |
 |---------|-------------|
-| **Chat** | Markdown rendering, real-time conversation display |
+| **Threaded chat** | Messages grouped by user command → agent responses; collapsible threads |
 | **Delegation chains** | `@mentions` in agent messages show visual `→ 🤖CTO` tags |
-| **Agent comms** | 💬 drawer tab filtering agent-to-agent internal messages only |
+| **Agent comms** | 💬 drawer tab with paired request↔response view (who asked what, who answered) |
 | **File upload** | 📎 button for images/docs, forwarded to agents |
 | **File previews** | .md rendered as HTML, .json formatted, code files with syntax view |
 | **Image serving** | PNG/JPG returned with correct MIME + inline thumbnails |
@@ -247,6 +263,11 @@ Sabujak is fully responsive and installable as a Progressive Web App:
 - Installed app runs in **standalone mode** (no browser chrome)
 - `manifest.json` + service worker included
 
+### Offline Support
+- Static assets (HTML/CSS/JS) cached on first visit → load instantly
+- API responses cached with network-first strategy → last-seen data shown offline
+- SSE and POST requests are excluded from caching
+
 ## Architecture
 
 ### Communication Pipeline
@@ -293,6 +314,8 @@ Agents control the system by including commands in their responses. **Both forma
 [APPROVAL:category:title:detail] — request approval
 [CRON_ADD:name:minutes:prompt]  — schedule recurring task
 [CRON_DEL:name]                 — delete recurring task
+[HIRE:Name:Role:Emoji]          — propose hiring (CEO/leaders, requires approval)
+[FIRE:Name:Reason]              — propose dismissal (CEO/leaders, requires approval)
 ```
 
 ### Unified format (optional)

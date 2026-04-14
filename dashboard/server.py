@@ -3931,6 +3931,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 fire_aid = approval.get('fire_agent_id', '')
                 if company and fire_aid:
                     fire_agent_id = f"{cid}-{fire_aid}"
+                    # Clear busy/queue state
+                    fire_key = f"{cid}:{fire_aid}"
+                    with _AGENT_STATE_LOCK:
+                        _AGENT_BUSY.discard(fire_key)
+                    if fire_key in _AGENT_QUEUES:
+                        _AGENT_QUEUES[fire_key].clear()
                     # Remove from company agents list
                     company['agents'] = [a for a in company['agents'] if a['id'] != fire_aid]
                     update_company(cid, {'agents': company['agents']})
@@ -4281,6 +4287,40 @@ async def api_set_persona(cid: str, aid: str, request: Request):
 async def api_agent_reactivate(cid: str, aid: str):
     data, code = _call(Handler._handle_agent_reactivate, f"/api/agent-reactivate/{cid}/{aid}")
     return JSONResponse(data, status_code=code)
+
+@app.post("/api/agent-fire/{cid}/{aid}")
+async def api_agent_fire(cid: str, aid: str, request: Request):
+    """Create a dismissal approval for an agent (master-initiated, bypasses CEO)."""
+    body = await request.json()
+    reason = body.get('reason', '').strip()
+    if not reason:
+        return JSONResponse({"error": "reason required"}, status_code=400)
+    if aid == 'ceo':
+        return JSONResponse({"error": "CEO cannot be dismissed"}, status_code=400)
+    company = get_company(cid)
+    if not company:
+        return JSONResponse({"error": "company not found"}, status_code=404)
+    target = next((a for a in company.get('agents', []) if a['id'] == aid), None)
+    if not target:
+        return JSONResponse({"error": "agent not found"}, status_code=404)
+    approval = {
+        'id': str(uuid.uuid4())[:8],
+        'from_agent': 'Master',
+        'from_emoji': '👤',
+        'approval_type': 'fire',
+        'category': 'hr',
+        'title': f"Dismiss {target.get('emoji', '')} {target.get('name', aid)}",
+        'detail': f"Reason: {reason}",
+        'fire_agent_id': aid,
+        'fire_agent_name': target.get('name', aid),
+        'status': 'pending',
+        'time': datetime.now().strftime('%H:%M'),
+        'created_at': datetime.now().isoformat(),
+    }
+    append_approval(cid, approval)
+    sse_broadcast('approval', {'cid': cid})
+    print(f"[fire] master proposed firing: {target.get('name', aid)} ({reason})")
+    return {"ok": True, "approval_id": approval['id']}
 
 @app.post("/api/agent-stop/{cid}/{aid}")
 async def api_agent_stop(cid: str, aid: str):

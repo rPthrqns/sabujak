@@ -263,11 +263,13 @@ async function fireAgent(aid){
   if(aid==='ceo'){toast('CEO cannot be dismissed');return}
   const reason=prompt(`Dismiss ${a.emoji} ${a.name}? Enter reason:`);
   if(!reason)return;
-  // Send as chat command so CEO processes it
+  // Create dismissal approval directly via API (not through CEO)
   try{
-    await fetch(`/api/chat/${cur}`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({text:`[FIRE:${a.name}:${reason}]`})});
-    toast(`🔥 ${a.name} dismissal submitted`);
+    const r=await fetch(`/api/agent-fire/${cur}/${aid}`,{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({reason})});
+    const d=await r.json();
+    if(d.ok)toast(`🔥 ${a.name} dismissal submitted for approval`);
+    else toast(d.error||t('toast.generic_error'));
   }catch(e){toast(t('toast.generic_error'))}
 }
 
