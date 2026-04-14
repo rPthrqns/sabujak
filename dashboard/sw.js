@@ -1,8 +1,8 @@
-const CACHE_NAME = 'sabujak-v1';
+const CACHE_NAME = 'sabujak-v2';
 const STATIC_ASSETS = [
   '/',
-  '/app.css?v=7',
-  '/app.js?v=7',
+  '/app.css?v=8',
+  '/app.js?v=8',
   '/manifest.json',
 ];
 const API_CACHE = 'sabujak-api-v1';

@@ -1696,6 +1696,33 @@ def _get_cached_protocol(lang='en') -> str:
     return _protocol_cache[lang]
 
 
+def _generate_custom_soul_sync(agent_id, workspace, name, role, company_name, topic, lang):
+    """Synchronous version — blocks until SOUL is written. Used for CEO first-time setup."""
+    protocol = _get_cached_protocol(lang)
+    lang_name = LANG.get(lang, 'Korean')
+    soul_file = workspace / "SOUL.md"
+    prompt = (
+        f"Write the IDENTITY section of a SOUL.md for an AI agent.\n\n"
+        f"Agent: {name}\nRole: {role}\nCompany: {company_name}\nCompany topic: {topic}\nLanguage: {lang_name}\n\n"
+        f"Write in {lang_name}. Include ONLY: ## Identity, ## Skills, ## Deliverables, ## Communication.\n"
+        f"Do NOT include system commands or rules. Return ONLY markdown (no ```). Under 25 lines."
+    )
+    try:
+        result = RUNTIME.run(agent_id, f"{agent_id}-soul-gen", prompt, timeout=60)
+        if result and len(result) > 30:
+            clean = result.strip()
+            if clean.startswith('```'): clean = clean.split('\n', 1)[-1]
+            if clean.endswith('```'): clean = clean.rsplit('```', 1)[0]
+            clean = clean.strip()
+            soul = f"# SOUL.md — {name} ({role}) @ {company_name}\n\n{clean}\n{protocol}"
+            soul_file.write_text(soul, encoding='utf-8')
+            print(f"[soul-gen-sync] {agent_id}: generated ({len(clean)} chars)")
+        else:
+            print(f"[soul-gen-sync] {agent_id}: LLM empty, keeping initial")
+    except Exception as e:
+        print(f"[soul-gen-sync] {agent_id}: failed ({e}), keeping initial")
+
+
 def _generate_custom_soul(agent_id, workspace, name, role, company_name, topic, lang):
     """Generate a hybrid SOUL.md: LLM writes the role-specific identity part,
     server appends the fixed protocol part.
@@ -1795,7 +1822,7 @@ def create_company(name, topic, lang="ko"):
     ceo_workspace = DATA / company_id / "workspaces" / "ceo"
     lang_name = LANG.get(lang, 'Korean')
 
-    def _ceo_ready(cid, lang):
+    def _ceo_ready(cid, lang, ceo_aid, ceo_ws, ceo_nm, ceo_rl, co_name, co_topic):
         def _done():
             c = get_company(cid)
             if not c: return
@@ -1806,7 +1833,10 @@ def create_company(name, topic, lang="ko"):
             w = _welcome_msg(c['name'], c['topic'], c['agents'], lang)
             c['chat'].append({"type": "system", "from": "시스템", "emoji": "✅", "to": "", "text": w['ready']})
             update_company(cid, {"chat": c['chat']})
-            # Auto-nudge CEO to propose team
+            # Generate SOUL.md SYNCHRONOUSLY before nudging CEO
+            # (so CEO has full context when proposing team)
+            _generate_custom_soul_sync(ceo_aid, ceo_ws, ceo_nm, ceo_rl, co_name, co_topic, lang)
+            # Then nudge CEO to propose team
             team_prompt = (
                 f"You are the CEO of '{c['name']}'. Topic: {c['topic']}.\n\n"
                 f"Analyze this topic and propose the team you need. "
@@ -1820,12 +1850,13 @@ def create_company(name, topic, lang="ko"):
                 f"After the [HIRE:] commands, greet the master in {lang_name} and explain your team plan.\n"
                 f"Include @Master in your response."
             )
-            threading.Thread(target=lambda: nudge_agent(cid, team_prompt, 'ceo'), daemon=True).start()
+            nudge_agent(cid, team_prompt, 'ceo')
         return _done
 
     register_agent(ceo_id, ceo_workspace, ceo_name, ceo_role, name, ceo_emoji,
-                   lang=lang, wait=False, on_done=_ceo_ready(company_id, lang), company_id=company_id)
-    _generate_custom_soul(ceo_id, ceo_workspace, ceo_name, ceo_role, name, topic, lang)
+                   lang=lang, wait=False,
+                   on_done=_ceo_ready(company_id, lang, ceo_id, ceo_workspace, ceo_name, ceo_role, name, topic),
+                   company_id=company_id)
 
     agents = [{
         "id": "ceo", "agent_id": ceo_id, "name": ceo_name, "emoji": ceo_emoji,
