@@ -2563,7 +2563,7 @@ def nudge_agent(cid, text, target):
                 prep_patterns = ['파악하겠', '확인하겠', '상황을 파악', '상황부터', '먼저 현재', 'check', 'assess', 'analyze first', 'let me',
                                  '검토하겠', '분석하겠', '살펴보겠', '조사하겠', '정리하겠', '계획을 세우', '방안을 마련']
                 is_prep = len(clean) < GUARDRAIL_PREP_MAX_LEN and any(p in clean.lower() for p in prep_patterns)
-                has_command = bool(re.search(r'\[TASK_|\[APPROVAL:|\[CRON_|\[TASK_DONE', clean))
+                has_command = bool(re.search(r'\[TASK[_:]|\[APPROVAL:|\[CRON[_:]|\[HIRE:|\[FIRE:', clean))
                 has_mention = bool(re.search(r'@[A-Za-z]', clean))
                 # Leaders MUST delegate (@mention), not just add tasks
                 if is_leader:
@@ -2615,7 +2615,7 @@ def nudge_agent(cid, text, target):
                             lines = retry_raw.split('\n')
                             retry_clean = '\n'.join(l for l in lines if _is_content_line(l)).strip()
                             # Check if retry actually has commands now
-                            retry_has_cmd = bool(re.search(r'\[TASK_|\[APPROVAL:|\[CRON_', retry_clean))
+                            retry_has_cmd = bool(re.search(r'\[TASK[_:]|\[APPROVAL:|\[CRON[_:]|\[HIRE:|\[FIRE:', retry_clean))
                             retry_has_mention = bool(re.search(r'@[A-Za-z]', retry_clean))
                             if retry_has_cmd or retry_has_mention:
                                 clean = retry_clean
