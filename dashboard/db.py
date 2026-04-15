@@ -858,7 +858,9 @@ def db_get_approvals(cid, status=None):
                 (cid,)).fetchall()
         conn.close()
     return [{'id': r['id'], 'from_agent': r['from_agent'], 'from_emoji': r['from_emoji'],
-             'type': r['approval_type'], 'detail': r['detail'], 'status': r['status'],
+             'type': r['approval_type'], 'approval_type': r['approval_type'],
+             'category': r['category'], 'title': r['title'],
+             'detail': r['detail'], 'status': r['status'],
              'time': r['time'], 'created_at': r['created_at']} for r in rows]
 
 _APPROVAL_ALLOWED_FIELDS = {'status', 'detail', 'time'}
@@ -881,10 +883,11 @@ def db_add_approval(cid, approval):
         _ensure_company_db(cid)
         conn = _conn(cid)
         conn.execute("""INSERT OR REPLACE INTO approvals
-            (id, company_id, from_agent, from_emoji, approval_type, detail, status, time, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (id, company_id, from_agent, from_emoji, approval_type, category, title, detail, status, time, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (approval.get('id',''), cid, approval.get('from_agent', approval.get('agent','')),
              approval.get('from_emoji',''), approval.get('type', approval.get('approval_type','요청')),
+             approval.get('category','general'), approval.get('title',''),
              approval.get('detail',''), approval.get('status','pending'),
              approval.get('time',''), approval.get('created_at','')))
         conn.commit()

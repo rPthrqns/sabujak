@@ -365,6 +365,8 @@ def process_task_commands(cid, text, agent_id):
         company = get_company(cid)
         agent = next((a for a in company.get('agents',[]) if a['id']==agent_id), None) if company else None
         agent_name = agent.get('name','') if agent else agent_id
+        # Encode hire info in detail as parseable format (DB only stores standard fields)
+        hire_detail = f"[HIRE_DATA:{hire_name}:{hire_role}:{hire_emoji}]\nRole: {hire_role}\nProposed by: {agent_name}\n\nApprove to create this agent."
         approval = {
             'id': str(uuid.uuid4())[:8],
             'from_agent': agent_name,
@@ -372,19 +374,17 @@ def process_task_commands(cid, text, agent_id):
             'approval_type': 'hire',
             'category': 'hr',
             'title': f"Hire {hire_emoji} {hire_name}",
-            'detail': f"Role: {hire_role}\nProposed by: {agent_name}\n\nApprove to create this agent.",
-            'hire_name': hire_name,
-            'hire_role': hire_role,
-            'hire_emoji': hire_emoji,
+            'detail': hire_detail,
             'status': 'pending',
             'time': datetime.now().strftime('%H:%M'),
             'created_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat(),
             'comments': '[]'
         }
-        # Dedup: don't propose same name twice
+        # Dedup: don't propose same name twice (check title since hire_name isn't in DB)
         existing_approvals_hire = db_get_approvals(cid)
-        if any(a.get('hire_name','') == hire_name and a.get('status') == 'pending' for a in existing_approvals_hire):
+        hire_title = f"Hire {hire_emoji} {hire_name}"
+        if any(a.get('title','') == hire_title and a.get('status') == 'pending' for a in existing_approvals_hire):
             print(f"[hire] SKIP duplicate: {hire_name} (already pending)")
             continue
         # Also skip if agent already exists
@@ -3942,17 +3942,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 threading.Thread(target=nudge_agent, args=(cid, nudge_text, agent_target.upper()), daemon=True).start()
 
             # If agent addition was approved, actually add the agent
-            if resolution == 'approved' and approval.get('type') in ('agent_add', 'hire') or approval.get('approval_type') in ('agent_add', 'hire'):
+            if resolution == 'approved' and (approval.get('type') in ('agent_add', 'hire') or approval.get('approval_type') in ('agent_add', 'hire')):
                 company = get_company(cid)
                 if company:
-                    # Try structured hire fields first (from [HIRE:] command)
-                    add_name = approval.get('hire_name', '')
-                    add_role = approval.get('hire_role', '')
-                    add_emoji = approval.get('hire_emoji', '🤖')
-                    if not add_name:
-                        # Fallback: parse from detail text
-                        detail = approval.get('detail', '')
-                        import re as _re
+                    detail = approval.get('detail', '')
+                    add_name = add_role = ''
+                    add_emoji = '🤖'
+                    # Parse structured [HIRE_DATA:name:role:emoji] from detail
+                    import re as _re
+                    hm = _re.search(r'\[HIRE_DATA:([^:]+):([^:]+):([^\]]+)\]', detail)
+                    if hm:
+                        add_name = hm.group(1).strip()
+                        add_role = hm.group(2).strip()
+                        add_emoji = hm.group(3).strip() or '🤖'
+                    elif not add_name:
+                        # Legacy fallback: parse "Name (Role)" pattern
                         m = _re.search(r'(\S+)\s*\(([^)]+)\)', detail)
                         if m:
                             add_name = m.group(1)
