@@ -984,7 +984,7 @@ function openCreate(){$('create-modal').classList.add('show')}
 async function createCo(){
   const n=$('c-name').value.trim(),t=$('c-topic').value.trim();if(!n)return;
   const btn=document.querySelector('#create-modal .btn-primary');
-  if(btn){btn.disabled=true;btn.textContent='⏳ 에이전트 생성 중...'}
+  if(btn){btn.disabled=true;btn.textContent='⏳ CEO...'}
   // Use first company's lang as default, fallback to localStorage lang
   const coLang=(cos.length&&cos[0].lang)?cos[0].lang:lang;
   try{
