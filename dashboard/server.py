@@ -3653,37 +3653,39 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self._json({"ok": True})
         # Agent process cleanup in background (slow, best-effort)
         def _bg_delete_agents():
-            import signal
-            for aid in agent_ids:
-                try:
-                    result = subprocess.run(['pgrep', '-f', re.escape(aid)], capture_output=True, text=True, timeout=5)
-                    for pid in result.stdout.strip().split('\n'):
-                        if pid.strip():
-                            try: os.kill(int(pid.strip()), signal.SIGTERM)
-                            except: pass
-                except: pass
-            failed = []
-            for aid in agent_ids:
-                try:
-                    ok = RUNTIME.delete(aid)
-                    print(f"[delete] agent {aid} {'removed' if ok else 'failed'}")
-                    if not ok: failed.append(aid)
-                except Exception as e:
-                    failed.append(aid)
-                    print(f"[delete] agent {aid} error: {e}")
-            for attempt in range(2):
-                if not failed: break
-                time.sleep(5)
-                still_failed = []
-                for aid in failed:
+            try:
+                import signal
+                for aid in agent_ids:
                     try:
-                        if RUNTIME.delete(aid): print(f"[delete] agent {aid} removed (retry {attempt+1})")
-                        else: still_failed.append(aid)
-                    except: still_failed.append(aid)
-                failed = still_failed
-            if failed: print(f"[delete] orphan agents: {failed}")
-            else: print(f"[delete] company {cid} fully cleaned")
-            _RECENTLY_DELETED.discard(cid)
+                        result = subprocess.run(['pgrep', '-f', re.escape(aid)], capture_output=True, text=True, timeout=5)
+                        for pid in result.stdout.strip().split('\n'):
+                            if pid.strip():
+                                try: os.kill(int(pid.strip()), signal.SIGTERM)
+                                except: pass
+                    except: pass
+                failed = []
+                for aid in agent_ids:
+                    try:
+                        ok = RUNTIME.delete(aid)
+                        print(f"[delete] agent {aid} {'removed' if ok else 'failed'}")
+                        if not ok: failed.append(aid)
+                    except Exception as e:
+                        failed.append(aid)
+                        print(f"[delete] agent {aid} error: {e}")
+                for attempt in range(2):
+                    if not failed: break
+                    time.sleep(5)
+                    still_failed = []
+                    for aid in failed:
+                        try:
+                            if RUNTIME.delete(aid): print(f"[delete] agent {aid} removed (retry {attempt+1})")
+                            else: still_failed.append(aid)
+                        except: still_failed.append(aid)
+                    failed = still_failed
+                if failed: print(f"[delete] orphan agents: {failed}")
+                else: print(f"[delete] company {cid} fully cleaned")
+            finally:
+                _RECENTLY_DELETED.discard(cid)
         threading.Thread(target=_bg_delete_agents, daemon=True).start()
 
     # ─── Agent Add Handler ───

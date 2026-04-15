@@ -292,12 +292,18 @@ function _md(raw){
   t=t.replace(/\*(.+?)\*/g,'<em>$1</em>');
   // Strikethrough
   t=t.replace(/~~(.+?)~~/g,'<s style="color:var(--dim)">$1</s>');
-  // Links
-  t=t.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank" style="color:#60a5fa;text-decoration:underline">$1</a>');
-  // Images (![alt](url))
-  t=t.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,'<img src="$2" alt="$1" style="max-width:200px;border-radius:6px;margin:4px 0;cursor:pointer" onclick="window.open(\'$2\')">');
-  // Image URLs in text
-  t=t.replace(/(https?:\/\/\S+\.(png|jpg|jpeg|gif|webp))/gi,'<img src="$1" style="max-width:200px;border-radius:6px;margin:4px 0;cursor:pointer" onclick="window.open(\'$1\')">');
+  // Links (block javascript: protocol to prevent XSS)
+  t=t.replace(/\[([^\]]+)\]\(([^)]+)\)/g,(m,text,url)=>{
+    if(/^javascript:/i.test(url.trim()))return _e(text);
+    return`<a href="${url.replace(/"/g,'&quot;')}" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:underline">${text}</a>`;
+  });
+  // Images (![alt](url)) — only allow http(s) and relative URLs
+  t=t.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,(m,alt,url)=>{
+    if(/^javascript:/i.test(url.trim()))return'';
+    return`<img src="${url.replace(/"/g,'&quot;')}" alt="${alt.replace(/"/g,'&quot;')}" style="max-width:200px;border-radius:6px;margin:4px 0;cursor:pointer" onclick="window.open(this.src)">`;
+  });
+  // Image URLs in text (only http/https — safe by pattern)
+  t=t.replace(/(https?:\/\/\S+\.(png|jpg|jpeg|gif|webp))/gi,'<img src="$1" style="max-width:200px;border-radius:6px;margin:4px 0;cursor:pointer" onclick="window.open(this.src)">');
   // Unordered list items
   t=t.replace(/^[-•]\s+(.+)$/gm,'<div style="padding-left:12px">• $1</div>');
   // Ordered list items
@@ -939,7 +945,7 @@ function _buildNode(t,co,allItems){
   }
 
   if(_planAddPar===t.id){
-    const opts=co?(co.agents||[]).map(a=>`<option value="${a.id}">${a.emoji} ${a.name}</option>`).join(''):'';
+    const opts=co?(co.agents||[]).map(a=>`<option value="${_e(a.id)}">${a.emoji} ${_e(a.name)}</option>`).join(''):'';
     h+=`<div class="pn-add"><input id="pai-${t.id}" placeholder="${_e(window.t('plan.sub_ph'))}" onkeydown="if(event.key==='Enter')planAddSubmit('${t.id}');if(event.key==='Escape')planAddCancel()"><select id="paa-${t.id}"><option value="">${_e(window.t('plan.assignee'))}</option>${opts}</select><button onclick="planAddSubmit('${t.id}')" style="background:var(--accent);color:white">↵</button><button onclick="planAddCancel()" style="background:var(--card);color:var(--dim)">✕</button></div>`;
   }
 
@@ -1037,7 +1043,7 @@ function fp(n,r,e){$('a-name').value=n;$('a-role').value=r;$('a-emoji').value=e}
 function fpKey(n,roleKey,e){fp(n,t(roleKey),e)}
 async function openAgent(){
   const s=$('a-parent'),c=cos.find(x=>x.id===cur);s.innerHTML='<option value="">리더 직속</option>';
-  if(c)(c.agents||[]).forEach(a=>s.innerHTML+=`<option value="${a.id}">${a.emoji} ${a.name}</option>`);
+  if(c)(c.agents||[]).forEach(a=>s.innerHTML+=`<option value="${_e(a.id)}">${a.emoji} ${_e(a.name)}</option>`);
   const m=$('a-model');m.innerHTML='<option value="">기본</option>';
   try{const r=await(await fetch('/api/models')).json();(r.models||[]).forEach(x=>m.innerHTML+=`<option value="${x.id}">${x.name}</option>`)}catch(e){}
   $('agent-modal').classList.add('show');
@@ -1059,7 +1065,7 @@ function openOutsource(){
   sel.onchange=()=>{
     const tid=sel.value;const tc=cos.find(c=>c.id===tid);
     const as=$('os-agent');as.innerHTML='<option value="">리더 자동선택</option>';
-    if(tc)(tc.agents||[]).forEach(a=>as.innerHTML+=`<option value="${a.id}">${a.emoji} ${a.name} (${a.role||''})</option>`);
+    if(tc)(tc.agents||[]).forEach(a=>as.innerHTML+=`<option value="${_e(a.id)}">${a.emoji} ${_e(a.name)} (${_e(a.role||'')})</option>`);
   };
   sel.onchange();
   $('os-text').value='';
@@ -1129,7 +1135,8 @@ function connectSSE(){
     lastLen=chat.length;
     renderIconGrid();renderChat();
   }catch(e){}});
-  es.onerror=()=>{es.close();sseTimer=setTimeout(connectSSE,3000)};
+  es.onerror=()=>{es.close();_sseBackoff=Math.min((_sseBackoff||3)*2,60);sseTimer=setTimeout(connectSSE,_sseBackoff*1000)};
+  es.onopen=()=>{_sseBackoff=3}; // reset on successful connection
 }
 
 // ─── Init ───
