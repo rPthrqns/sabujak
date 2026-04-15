@@ -996,8 +996,12 @@ async function createCo(){
       toast(`🏢 ${coName}`);
       _watchAgentReady(r.company.id,agentCount);
     }else toast(t('toast.create_fail'));
-  }catch(e){toast(t('toast.create_error'))}
-  if(btn){btn.disabled=false;btn.textContent=t('create_button_label')}
+  }catch(e){
+    toast(t('toast.create_error'));
+  }finally{
+    // ALWAYS restore button — never leave it permanently locked
+    if(btn){btn.disabled=false;btn.textContent=t('create_button_label')}
+  }
 }
 function _watchAgentReady(cid,total){
   let _interval=setInterval(async()=>{
