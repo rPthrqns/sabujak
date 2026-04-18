@@ -329,7 +329,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   .mobile-drawer-row button{background:none;border:none;color:var(--dim);font-size:14px;padding:2px 8px;cursor:pointer}
   .mobile-drawer-row button.active{color:var(--accent)}
   /* Drawer: slide from bottom */
-  .drawer{width:100%;height:50vh;top:auto;bottom:0;transform:translateY(100%)}
+  .drawer{width:100%;height:50vh;top:auto;bottom:0;transform:translateY(100%);z-index:45}
   .drawer.open{transform:translateY(0)}
   /* Overlays */
   .plan-panel{width:100%;max-width:100%;max-height:100vh;border-radius:0}

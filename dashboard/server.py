@@ -2636,6 +2636,12 @@ def nudge_agent(cid, text, target):
                     importance = min(10, max(3, len(clean) // 50))
                     db_add_memory(cid, aid, clean[:300], importance=importance, mem_type='action')
                 if clean:
+                    # Verify agent still exists (may have been fired mid-task)
+                    _co = get_company(cid)
+                    if _co and not any(a['id'] == aid for a in _co.get('agents', [])):
+                        print(f"[nudge] {aid} was removed during execution, discarding response")
+                        clean = ''
+                if clean:
                     save_agent_memory(cid, aid, clean)
                     process_task_commands(cid, clean, aid)
                     # Auto-detect approval intent even without [APPROVAL:] command
@@ -3994,9 +4000,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         _AGENT_BUSY.discard(fire_key)
                     if fire_key in _AGENT_QUEUES:
                         _AGENT_QUEUES[fire_key].clear()
-                    # Remove from company agents list
+                    # Remove from company agents list + clean up recurring tasks
                     company['agents'] = [a for a in company['agents'] if a['id'] != fire_aid]
-                    update_company(cid, {'agents': company['agents']})
+                    if 'recurring_tasks' in company:
+                        company['recurring_tasks'] = [t for t in company.get('recurring_tasks', []) if t.get('agent_id') != fire_aid]
+                    update_company(cid, {'agents': company['agents'], 'recurring_tasks': company.get('recurring_tasks', [])})
                     # Background: kill process + unregister
                     def _bg_fire():
                         try:
