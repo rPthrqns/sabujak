@@ -3243,7 +3243,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         cid = path.split('/')[-1]
         company = get_company(cid)
         if not company: self._json({"error": "not found"}, 404); return
-        text = body.get('text', '').strip()
+        text = str(body.get('text', '') or '').strip()
         agent_ids = body.get('agents', [])
         if not text: self._json({"error": "text required"}, 400); return
         if len(agent_ids) < 2: self._json({"error": "need at least 2 agents"}, 400); return
@@ -3303,7 +3303,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         to_cid = body.get('to_cid', '').strip()
         from_agent = body.get('from_agent', '').strip()
         to_agent = body.get('to_agent', '').strip()
-        text = body.get('text', '').strip()
+        text = str(body.get('text', '') or '').strip()
         if not all([from_cid, to_cid, text]):
             self._json({"error": "from_cid, to_cid, text required"}, 400); return
         from_company = get_company(from_cid)
@@ -3373,7 +3373,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     # ─── Chat Handler ───
     def _handle_chat(self, path, body):
         cid = path.split('/')[-1]
-        text = body.get('text', '').strip()
+        text = str(body.get('text', '') or '').strip()
         if not text: self._json({"error": "empty"}, 400); return
         company = get_company(cid)
         if not company: self._json({"error": "not found"}, 404); return
@@ -3446,7 +3446,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         cid = path.split('/')[-1]
         from_agent = body.get('from', 'CEO')
         to_agent = body.get('to', 'CEO')
-        text = body.get('text', '').strip()
+        text = str(body.get('text', '') or '').strip()
         emoji = body.get('emoji', '👔')
         if not text or text in ('No reply from agent.', ''): self._json({"ok": False, "reason": "empty/no_reply"}); return
 
@@ -3705,8 +3705,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         company = get_company(cid)
         if not company: self._json({"error": "not found"}, 404); return
 
-        name = body.get('name', '').strip()
-        role = body.get('role', '').strip()
+        name = str(body.get('name', '') or '').strip()
+        role = str(body.get('role', '') or '').strip()
         emoji = body.get('emoji', '🤖')[:4]  # limit emoji to 4 chars (prevents HTML injection)
         prompt = body.get('prompt', '').strip()
         if not name or not role: self._json({"error": "name and role required"}, 400); return

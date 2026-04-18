@@ -504,13 +504,18 @@ function aprNav(dir){
   _aprIdx=(_aprIdx+dir+pend.length)%pend.length;
   renderBanner();
 }
+let _aprSkipTimer=null;
 function aprSkip(){
   _aprSkipped=true;renderBanner();
-  setTimeout(()=>{_aprSkipped=false;renderBanner()},30000);
+  if(_aprSkipTimer)clearTimeout(_aprSkipTimer);
+  _aprSkipTimer=setTimeout(()=>{_aprSkipped=false;_aprSkipTimer=null;renderBanner()},30000);
 }
+let _aprResolving=false;
 async function aprResolve(res){
+  if(_aprResolving)return; // prevent double-click race
   const pend=approvals.filter(a=>a.status==='pending'&&(a.detail||a.title));
   if(!pend.length)return;
+  _aprResolving=true;
   const a=pend[_aprIdx];
   const comment=($('apr-comment')?.value||'').trim();
   try{
@@ -526,7 +531,8 @@ async function aprResolve(res){
       if(!pend.length)closeDrawer(); else renderDrawerApprovals($('drawer-body'));
     }
     fetch(`/api/approvals/${cur}?status=pending`).then(r=>r.json()).then(d=>{approvals=d;renderBanner();updateAprBadge();if(curDrawer==='approvals'){if(!d.length)closeDrawer();else renderDrawerApprovals($('drawer-body'))}}).catch(()=>{});
-  }catch(e){toast('❌ 오류: '+e.message)}
+  }catch(e){toast('❌ '+e.message)}
+  finally{_aprResolving=false}
 }
 function resolve(id,res,comment){
   const idx=approvals.findIndex(a=>a.id===id);
@@ -1100,9 +1106,12 @@ document.addEventListener('click',e=>{if(!e.target.closest('#search')&&!e.target
 
 // ─── SSE ───
 let sseTimer=null;
+let _sseInstance=null;
 function connectSSE(){
   if(sseTimer)clearTimeout(sseTimer);
+  if(_sseInstance){try{_sseInstance.close()}catch(e){}} // cleanup previous
   const es=new EventSource('/api/sse');
+  _sseInstance=es;
   es.addEventListener('init',e=>{try{cos=JSON.parse(e.data);renderTabs()}catch(e){}});
   es.addEventListener('agent_thinking',e=>{try{const d=JSON.parse(e.data);
     thinking[d.cid+':'+d.agent_id]={};
@@ -1141,10 +1150,11 @@ function connectSSE(){
 
 // ─── Init ───
 document.addEventListener('DOMContentLoaded',async()=>{
-  await checkLang();  // loads and applies i18n
+  await checkLang();
   initNotif();
+  load();
+  connectSSE();
 });
-load();connectSSE();
 
 // ─── PWA Service Worker + Install Prompt ───
 if('serviceWorker' in navigator){
