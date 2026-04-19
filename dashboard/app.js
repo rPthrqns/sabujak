@@ -893,7 +893,8 @@ function renderPlan(){
 
     if(!collapsed){
       h+=`<div style="padding-left:12px;margin-top:4px">`;
-      items.forEach(t=>{h+=_buildNode(t,co,allItems)});
+      _buildNodeVisited.clear();
+      items.forEach(t=>{h+=_buildNode(t,co,allItems,0)});
       h+=`</div>`;
     }
     h+=`</div>`;
@@ -914,7 +915,10 @@ function planToggleCat(catId){
   renderPlan();
 }
 
-function _buildNode(t,co,allItems){
+const _buildNodeVisited=new Set();
+function _buildNode(t,co,allItems,_depth){
+  if((_depth||0)>20||_buildNodeVisited.has(t.id))return''; // prevent infinite recursion
+  _buildNodeVisited.add(t.id);
   const s=t.status||'todo';
   const kids=(allItems||_planTasks).filter(c=>c.parent_id===t.id);
   const hasKids=kids.length>0;
@@ -957,7 +961,7 @@ function _buildNode(t,co,allItems){
 
   if(hasKids&&!collapsed){
     h+=`<div class="pn-kids">`;
-    kids.forEach(k=>{h+=_buildNode(k,co,allItems)});
+    kids.forEach(k=>{h+=_buildNode(k,co,allItems,(_depth||0)+1)});
     h+=`</div>`;
   }
   h+=`</div>`;

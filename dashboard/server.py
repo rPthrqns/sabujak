@@ -2328,7 +2328,8 @@ def nudge_agent(cid, text, target):
         import glob as _glob
         del_dir = DATA / cid / '_shared' / 'deliverables'
         if del_dir.exists():
-            del_files = sorted(del_dir.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True)[:5]
+            try: del_files = sorted([f for f in del_dir.iterdir() if f.exists()], key=lambda f: f.stat().st_mtime, reverse=True)[:5]
+            except OSError: del_files = []
             if del_files:
                 ctx_parts.append("=== 최근 결과물 ===\n" + '\n'.join(f"- {f.name}" for f in del_files))
         # 정기작업
@@ -2932,11 +2933,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             shared_dir = DATA / cid / '_shared' / 'deliverables'
             files = []
             if shared_dir.exists():
-                for f in sorted(shared_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
-                    if f.is_file() and not f.name.startswith('.'):
-                        size = f.stat().st_size
-                        mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime('%m-%d %H:%M')
-                        files.append({'path': f'_shared/deliverables/{f.name}', 'size': size, 'modified': mtime})
+                try:
+                    for f in sorted([x for x in shared_dir.iterdir() if x.exists()], key=lambda x: x.stat().st_mtime, reverse=True):
+                        if f.is_file() and not f.name.startswith('.'):
+                            try:
+                                size = f.stat().st_size
+                                mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime('%m-%d %H:%M')
+                                files.append({'path': f'_shared/deliverables/{f.name}', 'size': size, 'modified': mtime})
+                            except OSError: pass
+                except OSError: pass
             self._json(files[:50])
         elif self.path.startswith('/api/approvals/'):
             cid = self.path.split('/')[-1]
@@ -4223,12 +4228,16 @@ def api_get_deliverables(cid: str):
     shared_dir = DATA / cid / '_shared' / 'deliverables'
     files = []
     if shared_dir.exists():
-        for f in sorted(shared_dir.rglob('*'), key=lambda x: x.stat().st_mtime, reverse=True):
-            if f.is_file() and not f.name.startswith('.'):
-                size = f.stat().st_size
-                mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime('%m-%d %H:%M')
-                rel = str(f.relative_to(DATA / cid))
-                files.append({'path': rel, 'size': size, 'modified': mtime})
+        try:
+            for f in sorted([x for x in shared_dir.rglob('*') if x.exists()], key=lambda x: x.stat().st_mtime, reverse=True):
+                if f.is_file() and not f.name.startswith('.'):
+                    try:
+                        size = f.stat().st_size
+                        mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime('%m-%d %H:%M')
+                        rel = str(f.relative_to(DATA / cid))
+                        files.append({'path': rel, 'size': size, 'modified': mtime})
+                    except OSError: pass
+        except OSError: pass
     return files[:100]
 
 @app.get("/api/approvals/{cid}")
